@@ -90,6 +90,9 @@ jobs:
       - name: Validate docker-compose.ghcr.yml (GHCR mode)
         run: docker compose -f docker-compose.ghcr.yml config -q
 
+      - name: Validate docker-compose.yml + build override (merged)
+        run: docker compose -f docker-compose.yml -f docker-compose.build.yml config -q
+
   version-check:
     name: Version Consistency
     runs-on: ubuntu-latest
