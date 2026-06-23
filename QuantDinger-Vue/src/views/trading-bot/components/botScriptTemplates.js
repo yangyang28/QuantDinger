@@ -448,7 +448,17 @@ def on_bar(ctx, bar):
     ctx._params["last_buy_price"] = price
     ctx.log("DCA #%d: BUY %.2f quote @ %.6f (total: %.2f)" % (buy_count + 1, amount, price, total_spent + amount))
 `
-  }
+  },
+
+  hedge_arb: () => `# ---- Funding Rate Hedge (orchestrator-driven) ----
+
+def on_init(ctx):
+    ctx.log("hedge_arb: live loop uses funding/basis orchestrator (spot long + perp short)")
+
+
+def on_bar(ctx, bar):
+    pass
+`
 }
 
 export function generateBotScript (botType, params, context) {

@@ -191,6 +191,135 @@
       </div>
     </a-card>
 
+    <a-card
+      v-if="isHedgeArbBot"
+      :bordered="false"
+      class="hedge-summary-card"
+      style="margin-top: 12px;"
+    >
+      <div class="hedge-summary">
+        <div class="hedge-summary__header">
+          <div class="hedge-summary__title">
+            <span class="hedge-summary__icon">
+              <a-icon type="swap" />
+            </span>
+            <div class="hedge-summary__title-text">
+              <span class="hedge-summary__name">{{ $t('trading-bot.hedgeArb.panelTitle') }}</span>
+              <a-tooltip :title="$t('trading-bot.hedgeArb.panelHint')">
+                <a-icon type="question-circle" class="hedge-summary__tip" />
+              </a-tooltip>
+            </div>
+          </div>
+          <div class="hedge-arb-actions">
+            <a-button
+              size="small"
+              class="hedge-summary__refresh"
+              @click="refreshHedgeArbStatus"
+              :loading="hedgeArbLoading"
+            >
+              <a-icon type="reload" />
+            </a-button>
+            <a-button
+              v-if="canHedgeArbEnter"
+              size="small"
+              type="primary"
+              :loading="hedgeArbActionLoading"
+              @click="handleHedgeArbEnter"
+            >
+              {{ $t('trading-bot.hedgeArb.actionEnter') }}
+            </a-button>
+            <template v-if="canHedgeArbManage">
+              <a-button
+                size="small"
+                :loading="hedgeArbActionLoading"
+                @click="handleHedgeArbRebalance"
+              >
+                {{ $t('trading-bot.hedgeArb.actionRebalance') }}
+              </a-button>
+              <a-button
+                size="small"
+                type="danger"
+                :loading="hedgeArbActionLoading"
+                @click="handleHedgeArbExit"
+              >
+                {{ $t('trading-bot.hedgeArb.actionExit') }}
+              </a-button>
+            </template>
+            <a-button size="small" @click="handleHedgeArbBacktest">
+              {{ $t('trading-bot.hedgeArb.actionBacktest') }}
+            </a-button>
+          </div>
+        </div>
+
+        <div class="hedge-summary__grid hedge-arb-grid">
+          <div class="hedge-stat">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-assistant.detail.status') }}</span>
+            </div>
+            <div class="hedge-stat__value">{{ hedgeArbStatusLabel }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.fundingRate') }}</span>
+            </div>
+            <div class="hedge-stat__value">{{ formatFundingRate(hedgeArbSignals.funding_rate) }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.basisPct') }}</span>
+            </div>
+            <div class="hedge-stat__value">{{ formatBasisPct(hedgeArbSignals.basis_pct) }}</div>
+          </div>
+          <div class="hedge-stat hedge-stat--long">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.spotQty') }}</span>
+            </div>
+            <div class="hedge-stat__value">{{ formatHedgeQty(hedgeArbStatus.spot_qty) }}</div>
+          </div>
+          <div class="hedge-stat hedge-stat--short">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.perpQty') }}</span>
+            </div>
+            <div class="hedge-stat__value">{{ formatHedgeQty(hedgeArbStatus.perp_qty) }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.driftPct') }}</span>
+            </div>
+            <div class="hedge-stat__value">{{ formatBasisPct(hedgeArbStatus.notional_drift_pct) }}</div>
+          </div>
+        </div>
+        <div v-if="hedgeArbStatus.entered_at" class="hedge-arb-entered">
+          {{ $t('trading-bot.hedgeArb.enteredAt') }}: {{ hedgeArbStatus.entered_at }}
+        </div>
+        <div v-if="hedgeArbStatus.last_error" class="hedge-arb-error">
+          {{ hedgeArbStatus.last_error }}
+        </div>
+      </div>
+    </a-card>
+
+    <a-modal
+      :title="$t('trading-bot.hedgeArb.backtestTitle')"
+      :visible="hedgeArbBacktestVisible"
+      :footer="null"
+      width="480px"
+      @cancel="hedgeArbBacktestVisible = false"
+    >
+      <a-spin :spinning="hedgeArbBacktestLoading">
+        <a-descriptions v-if="hedgeArbBacktestResult" :column="1" bordered size="small">
+          <a-descriptions-item :label="$t('trading-bot.wizard.symbol')">
+            {{ hedgeArbBacktestResult.symbol }}
+          </a-descriptions-item>
+          <a-descriptions-item :label="$t('trading-bot.hedgeArb.backtestCycles')">
+            {{ hedgeArbBacktestResult.cycles }}
+          </a-descriptions-item>
+          <a-descriptions-item :label="$t('trading-bot.hedgeArb.backtestNetPnl')">
+            {{ formatNum(hedgeArbBacktestResult.net_pnl_usdt) }} USDT
+          </a-descriptions-item>
+        </a-descriptions>
+      </a-spin>
+    </a-modal>
+
     <a-card :bordered="false" class="detail-tabs-card" style="margin-top: 12px;">
       <a-tabs v-model="activeTab" :animated="false">
         <a-tab-pane key="params" :tab="$t('trading-bot.tab.params')">
@@ -423,7 +552,7 @@ import PositionRecords from '@/views/trading-assistant/components/PositionRecord
 import PerformanceAnalysis from '@/views/trading-assistant/components/PerformanceAnalysis.vue'
 import StrategyReviewReport from '@/views/trading-assistant/components/StrategyReviewReport.vue'
 import StrategyLogs from '@/views/trading-assistant/components/StrategyLogs.vue'
-import { getStrategyPositions, getStrategyTrades, getGridRestingOrders } from '@/api/strategy'
+import { getStrategyPositions, getStrategyTrades, getGridRestingOrders, getHedgeArbStatus, hedgeArbEnter, hedgeArbExit, hedgeArbRebalance, hedgeArbBacktest } from '@/api/strategy'
 
 const TYPE_META = {
   grid: { icon: 'bar-chart', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
@@ -431,6 +560,7 @@ const TYPE_META = {
   trend: { icon: 'stock', gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
   dca: { icon: 'fund', gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
   arbitrage: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
+  hedge_arb: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   custom: { icon: 'code', gradient: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' }
 }
 
@@ -464,7 +594,14 @@ const PARAM_LABEL_MAP = {
   frequency: 'trading-bot.dca.frequency',
   totalBudget: 'trading-bot.dca.totalBudget',
   dipBuyEnabled: 'trading-bot.dca.dipBuy',
-  dipThreshold: 'trading-bot.dca.dipThreshold'
+  dipThreshold: 'trading-bot.dca.dipThreshold',
+  notionalUsdt: 'trading-bot.hedgeArb.notionalUsdt',
+  entryFundingRate: 'trading-bot.hedgeArb.entryFundingRate',
+  exitFundingRate: 'trading-bot.hedgeArb.exitFundingRate',
+  maxBasisPct: 'trading-bot.hedgeArb.maxBasisPct',
+  rebalanceThresholdPct: 'trading-bot.hedgeArb.rebalanceThresholdPct',
+  tickIntervalSec: 'trading-bot.hedgeArb.tickIntervalSec',
+  maxHoldHours: 'trading-bot.hedgeArb.maxHoldHours'
 }
 
 const VALUE_DISPLAY_MAP = {
@@ -496,7 +633,14 @@ export default {
       hedgeTimer: null,
       restingOrders: [],
       restingLoading: false,
-      restingTimer: null
+      restingTimer: null,
+      hedgeArbStatus: {},
+      hedgeArbLoading: false,
+      hedgeArbTimer: null,
+      hedgeArbActionLoading: false,
+      hedgeArbBacktestVisible: false,
+      hedgeArbBacktestLoading: false,
+      hedgeArbBacktestResult: null
     }
   },
   computed: {
@@ -597,6 +741,32 @@ export default {
       const bt = this.bot?.bot_type || this.tc.bot_type
       return bt === 'grid' || bt === 'dca'
     },
+    isHedgeArbBot () {
+      const bt = this.bot?.bot_type || this.tc.bot_type
+      return bt === 'hedge_arb'
+    },
+    hedgeArbSignals () {
+      return (this.hedgeArbStatus && this.hedgeArbStatus.signals) || {}
+    },
+    hedgeArbStatusLabel () {
+      const st = String(this.hedgeArbStatus?.status || 'flat').toLowerCase()
+      const map = {
+        flat: this.$t('trading-bot.hedgeArb.statusFlat'),
+        holding: this.$t('trading-bot.hedgeArb.statusHolding'),
+        error: this.$t('trading-bot.hedgeArb.statusError')
+      }
+      return map[st] || st
+    },
+    isHedgeArbLive () {
+      const mode = String(this.bot?.execution_mode || this.tc.execution_mode || 'live').toLowerCase()
+      return mode === 'live'
+    },
+    canHedgeArbEnter () {
+      return this.isHedgeArbLive && this.bot?.status !== 'running'
+    },
+    canHedgeArbManage () {
+      return this.isHedgeArbLive && this.bot?.status === 'running'
+    },
     longLeg () {
       const sym = String((this.tc.symbol || '').split(':')[0] || '').toUpperCase()
       return this.hedgePositions.find(p => {
@@ -636,6 +806,7 @@ export default {
       const tc = this.tc || {}
       const override = tc.tick_interval_sec
       if (override != null && override !== '') return `${override}s`
+      if (this.isHedgeArbBot) return '300s'
       // Backend default: 1s for grid/dca, 10s otherwise (see trading_executor.py).
       return this.isGridLikeBot ? '1s' : '10s'
     },
@@ -656,10 +827,15 @@ export default {
       immediate: true,
       handler (id) {
         this.stopHedgePolling()
+        this.stopHedgeArbPolling()
         this.stopRestingPolling()
         if (id && this.isGridLikeBot) {
           this.refreshHedgeSummary()
           this.startHedgePolling()
+        }
+        if (id && this.isHedgeArbBot) {
+          this.refreshHedgeArbStatus()
+          this.startHedgeArbPolling()
         }
         if (id && this.isGridBot) {
           this.refreshRestingOrders(true)
@@ -683,12 +859,22 @@ export default {
         }
       }
     },
+    isHedgeArbBot: {
+      handler (val) {
+        this.stopHedgeArbPolling()
+        if (val && this.bot?.id) {
+          this.refreshHedgeArbStatus()
+          this.startHedgeArbPolling()
+        }
+      }
+    },
     bot () {
       this.activeTab = 'params'
     }
   },
   beforeDestroy () {
     this.stopHedgePolling()
+    this.stopHedgeArbPolling()
     this.stopRestingPolling()
   },
   methods: {
@@ -775,6 +961,125 @@ export default {
         }
       } finally {
         this.hedgeLoading = false
+      }
+    },
+    startHedgeArbPolling () {
+      this.stopHedgeArbPolling()
+      if (!this.isHedgeArbBot) return
+      this.hedgeArbTimer = setInterval(() => {
+        this.refreshHedgeArbStatus(true)
+      }, 15000)
+    },
+    stopHedgeArbPolling () {
+      if (this.hedgeArbTimer) {
+        clearInterval(this.hedgeArbTimer)
+        this.hedgeArbTimer = null
+      }
+    },
+    async refreshHedgeArbStatus (silent = false) {
+      if (!this.bot?.id || !this.isHedgeArbBot) return
+      if (!silent) this.hedgeArbLoading = true
+      try {
+        const res = await getHedgeArbStatus(this.bot.id)
+        if (res && res.code === 1) {
+          this.hedgeArbStatus = res.data || {}
+        }
+      } finally {
+        if (!silent) this.hedgeArbLoading = false
+      }
+    },
+    formatFundingRate (v) {
+      const n = parseFloat(v)
+      if (!isFinite(n)) return '-'
+      return `${(n * 100).toFixed(4)}%`
+    },
+    formatBasisPct (v) {
+      const n = parseFloat(v)
+      if (!isFinite(n)) return '-'
+      return `${(n * 100).toFixed(3)}%`
+    },
+    formatHedgeQty (v) {
+      const n = parseFloat(v)
+      if (!isFinite(n) || Math.abs(n) < 1e-12) return this.$t('trading-bot.detail.noLegPosition')
+      const sym = String((this.tc.symbol || '').split(':')[0] || '')
+      const unit = sym.includes('/') ? sym.split('/')[0].toUpperCase() : ''
+      const qty = n.toFixed(6)
+      return unit ? `${qty} ${unit}` : qty
+    },
+    async handleHedgeArbEnter () {
+      if (!this.bot?.id) return
+      this.hedgeArbActionLoading = true
+      try {
+        const notional = this.tc.notional_usdt
+        const res = await hedgeArbEnter(this.bot.id, notional)
+        if (res && res.code === 1) {
+          this.$message.success(this.$t('trading-bot.hedgeArb.enterSuccess'))
+          await this.refreshHedgeArbStatus()
+        } else {
+          throw new Error((res && res.msg) || this.$t('trading-bot.hedgeArb.actionFail'))
+        }
+      } catch (e) {
+        this.$message.error(e.message || this.$t('trading-bot.hedgeArb.actionFail'))
+      } finally {
+        this.hedgeArbActionLoading = false
+      }
+    },
+    async handleHedgeArbExit () {
+      if (!this.bot?.id) return
+      this.hedgeArbActionLoading = true
+      try {
+        const res = await hedgeArbExit(this.bot.id)
+        if (res && res.code === 1) {
+          this.$message.success(this.$t('trading-bot.hedgeArb.exitSuccess'))
+          await this.refreshHedgeArbStatus()
+        } else {
+          throw new Error((res && res.msg) || this.$t('trading-bot.hedgeArb.actionFail'))
+        }
+      } catch (e) {
+        this.$message.error(e.message || this.$t('trading-bot.hedgeArb.actionFail'))
+      } finally {
+        this.hedgeArbActionLoading = false
+      }
+    },
+    async handleHedgeArbRebalance () {
+      if (!this.bot?.id) return
+      this.hedgeArbActionLoading = true
+      try {
+        const res = await hedgeArbRebalance(this.bot.id)
+        if (res && res.code === 1) {
+          this.$message.success(this.$t('trading-bot.hedgeArb.rebalanceSuccess'))
+          await this.refreshHedgeArbStatus()
+        } else {
+          throw new Error((res && res.msg) || this.$t('trading-bot.hedgeArb.actionFail'))
+        }
+      } catch (e) {
+        this.$message.error(e.message || this.$t('trading-bot.hedgeArb.actionFail'))
+      } finally {
+        this.hedgeArbActionLoading = false
+      }
+    },
+    async handleHedgeArbBacktest () {
+      this.hedgeArbBacktestVisible = true
+      this.hedgeArbBacktestLoading = true
+      this.hedgeArbBacktestResult = null
+      try {
+        const tc = this.tc || {}
+        const res = await hedgeArbBacktest({
+          symbol: tc.symbol,
+          notional_usdt: tc.notional_usdt,
+          entry_funding_rate: tc.entry_funding_rate,
+          exit_funding_rate: tc.exit_funding_rate
+        })
+        if (res && res.code === 1) {
+          this.hedgeArbBacktestResult = res.data || null
+        } else {
+          throw new Error((res && res.msg) || this.$t('trading-bot.hedgeArb.actionFail'))
+        }
+      } catch (e) {
+        this.$message.error(e.message || this.$t('trading-bot.hedgeArb.actionFail'))
+        this.hedgeArbBacktestVisible = false
+      } finally {
+        this.hedgeArbBacktestLoading = false
       }
     },
     formatLegSize (leg) {
@@ -1211,6 +1516,25 @@ export default {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 14px;
   }
+}
+.hedge-arb-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.hedge-arb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.hedge-arb-entered {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #8c8c8c;
+}
+.hedge-arb-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #ff4d4f;
 }
 .hedge-stat {
   position: relative;

@@ -104,6 +104,16 @@ export default {
           riskLabel: this.$t('trading-bot.risk.low'),
           riskClass: 'low',
           scene: this.$t('trading-bot.scene.longTerm')
+        },
+        {
+          key: 'hedge_arb',
+          name: this.$t('trading-bot.type.hedge_arb'),
+          desc: this.$t('trading-bot.type.hedge_arbDesc'),
+          icon: 'swap',
+          gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+          riskLabel: this.$t('trading-bot.risk.medium'),
+          riskClass: 'medium',
+          scene: this.$t('trading-bot.scene.funding')
         }
       ]
       // Tag each card with the markets it supports so the parent (or the
@@ -138,7 +148,7 @@ export default {
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 14px;
 }
 

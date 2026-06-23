@@ -958,6 +958,16 @@ class StrategyService:
                 self._display_item('dipBuyEnabled', 'trading-bot.dca.dipBuy', bool(params.get('dipBuyEnabled')), 'bool'),
                 self._display_item('dipThreshold', 'trading-bot.dca.dipThreshold', self._to_float(params.get('dipThreshold'), 0.0), 'percent'),
             ]
+        elif bot_type == 'hedge_arb':
+            display['strategy_params'] = [
+                self._display_item('notionalUsdt', 'trading-bot.hedgeArb.notionalUsdt', self._to_float(tc.get('notional_usdt'), 1000.0), 'usdt'),
+                self._display_item('entryFundingRate', 'trading-bot.hedgeArb.entryFundingRate', self._to_float(tc.get('entry_funding_rate'), 0.0001) * 100, 'percent'),
+                self._display_item('exitFundingRate', 'trading-bot.hedgeArb.exitFundingRate', self._to_float(tc.get('exit_funding_rate'), 0.0) * 100, 'percent'),
+                self._display_item('maxBasisPct', 'trading-bot.hedgeArb.maxBasisPct', self._to_float(tc.get('max_basis_pct'), 0.005) * 100, 'percent'),
+                self._display_item('rebalanceThresholdPct', 'trading-bot.hedgeArb.rebalanceThresholdPct', self._to_float(tc.get('rebalance_threshold_pct'), 0.02) * 100, 'percent'),
+                self._display_item('tickIntervalSec', 'trading-bot.hedgeArb.tickIntervalSec', self._to_int(tc.get('tick_interval_sec'), 300), 'number'),
+                self._display_item('maxHoldHours', 'trading-bot.hedgeArb.maxHoldHours', self._to_float(tc.get('max_hold_hours'), 0.0), 'number'),
+            ]
 
         if self._to_float(tc.get('stop_loss_pct'), 0.0) > 0:
             display['risk_params'].append(

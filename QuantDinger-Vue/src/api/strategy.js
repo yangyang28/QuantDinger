@@ -39,7 +39,12 @@ const api = {
   deleteScriptSource: '/api/strategies/script-sources/delete',
   publishScriptSource: '/api/strategies/script-sources/publish',
   publishTemplate: '/api/strategies/publish-template',
-  publishBotPreset: '/api/strategies/publish-bot-preset'
+  publishBotPreset: '/api/strategies/publish-bot-preset',
+  hedgeArbStatus: '/api/strategies/hedge-arb/status',
+  hedgeArbEnter: '/api/strategies/hedge-arb/enter',
+  hedgeArbExit: '/api/strategies/hedge-arb/exit',
+  hedgeArbRebalance: '/api/strategies/hedge-arb/rebalance',
+  hedgeArbBacktest: '/api/strategies/hedge-arb/backtest'
 }
 
 export function getStrategyList (params = {}) {
@@ -355,5 +360,47 @@ export function publishBotPreset (data) {
     url: api.publishBotPreset,
     method: 'post',
     data
+  })
+}
+
+export function getHedgeArbStatus (id) {
+  return request({
+    url: api.hedgeArbStatus,
+    method: 'get',
+    params: { id }
+  })
+}
+
+export function hedgeArbEnter (id, notionalUsdt) {
+  const data = { id, strategy_id: id }
+  if (notionalUsdt != null) data.notional_usdt = notionalUsdt
+  return request({
+    url: api.hedgeArbEnter,
+    method: 'post',
+    data
+  })
+}
+
+export function hedgeArbExit (id) {
+  return request({
+    url: api.hedgeArbExit,
+    method: 'post',
+    data: { id, strategy_id: id }
+  })
+}
+
+export function hedgeArbRebalance (id) {
+  return request({
+    url: api.hedgeArbRebalance,
+    method: 'post',
+    data: { id, strategy_id: id }
+  })
+}
+
+export function hedgeArbBacktest (payload) {
+  return request({
+    url: api.hedgeArbBacktest,
+    method: 'post',
+    data: payload || {}
   })
 }

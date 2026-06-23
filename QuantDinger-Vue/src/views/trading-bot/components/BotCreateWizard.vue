@@ -89,6 +89,13 @@
                 <a-icon type="setting" /> {{ $t('trading-bot.wizard.manageCredentials') }}
               </router-link>
             </div>
+            <div
+              v-if="isHedgeArbBot && currentExchangeId && currentExchangeId !== 'binance'"
+              class="form-hint"
+              style="margin-top: 6px; color: #ff9800;"
+            >
+              <a-icon type="warning" /> {{ $t('trading-bot.hedgeArb.binanceRequired') }}
+            </div>
           </a-form-model-item>
 
           <a-form-model-item :label="$t('trading-bot.wizard.symbol')" prop="symbol">
@@ -153,7 +160,13 @@
           </a-form-model-item>
 
           <a-form-model-item :label="$t('trading-bot.wizard.marketType')">
-            <template v-if="shouldShowMarketTypeSelector">
+            <template v-if="isHedgeArbBot">
+              <a-tag color="orange">{{ $t('trading-bot.wizard.futures') }}</a-tag>
+              <span class="form-hint" style="margin-left: 8px;">
+                {{ isZhLocale ? 'K 线使用永续价；orchestrator 自动开 spot + swap 两腿' : 'K-line uses perp price; orchestrator opens spot + swap legs' }}
+              </span>
+            </template>
+            <template v-else-if="shouldShowMarketTypeSelector">
               <a-radio-group v-model="baseForm.marketType" :disabled="!swapAvailableForCurrentSelection && !spotAvailableForCurrentSelection">
               <a-radio value="swap" :disabled="!swapAvailableForCurrentSelection">{{ $t('trading-bot.wizard.futures') }}</a-radio>
               <a-radio value="spot" :disabled="!spotAvailableForCurrentSelection">{{ $t('trading-bot.wizard.spot') }}</a-radio>
@@ -168,7 +181,7 @@
           </a-form-model-item>
 
           <a-form-model-item
-            v-if="baseForm.marketType === 'swap'"
+            v-if="baseForm.marketType === 'swap' && !isHedgeArbBot"
             :label="$t('trading-bot.wizard.leverage')"
           >
             <a-input-number
@@ -214,7 +227,16 @@
           :label-col="{ span: 8 }"
           :wrapper-col="{ span: 14 }"
         >
-          <template v-if="botType !== 'martingale'">
+          <template v-if="isHedgeArbBot">
+            <a-alert
+              type="info"
+              show-icon
+              style="margin-bottom: 16px;"
+              :message="$t('trading-bot.hedgeArb.riskTitle')"
+              :description="$t('trading-bot.hedgeArb.riskDesc')"
+            />
+          </template>
+          <template v-else-if="botType !== 'martingale'">
             <a-alert
               v-if="isGridLikeBot"
               type="info"
@@ -344,16 +366,16 @@
 
           <h4 style="margin-top: 20px;">{{ $t('trading-bot.wizard.riskParams') }}</h4>
           <a-descriptions :column="1" bordered size="small">
-            <a-descriptions-item v-if="botType !== 'martingale'" :label="gridLikeStopLossLabel">
+            <a-descriptions-item v-if="botType !== 'martingale' && !isHedgeArbBot" :label="gridLikeStopLossLabel">
               {{ riskForm.stopLossPct }}%
             </a-descriptions-item>
-            <a-descriptions-item v-if="botType !== 'martingale'" :label="gridLikeTakeProfitLabel">
+            <a-descriptions-item v-if="botType !== 'martingale' && !isHedgeArbBot" :label="gridLikeTakeProfitLabel">
               {{ riskForm.takeProfitPct }}%
             </a-descriptions-item>
             <a-descriptions-item v-if="isGridLikeBot" :label="$t('trading-bot.risk.gridOobBufferPct')">
               {{ riskForm.gridOobBufferPct }}%
             </a-descriptions-item>
-            <a-descriptions-item v-if="botType !== 'martingale'" :label="$t('trading-bot.risk.maxPosition')">
+            <a-descriptions-item v-if="botType !== 'martingale' && !isHedgeArbBot" :label="$t('trading-bot.risk.maxPosition')">
               ${{ riskForm.maxPosition }}
             </a-descriptions-item>
             <a-descriptions-item :label="dailyLossLabel">
@@ -466,6 +488,7 @@ import GridConfig from './configs/GridConfig.vue'
 import MartingaleConfig from './configs/MartingaleConfig.vue'
 import TrendConfig from './configs/TrendConfig.vue'
 import DCAConfig from './configs/DCAConfig.vue'
+import HedgeArbConfig from './configs/HedgeArbConfig.vue'
 import { formatPercentDisplay, ratioOrPercentToUiPercent } from '@/utils/numberFormat'
 
 const BOT_TYPE_MAP = {
@@ -488,6 +511,11 @@ const BOT_TYPE_MAP = {
     icon: 'fund',
     gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
     component: 'DCAConfig'
+  },
+  hedge_arb: {
+    icon: 'swap',
+    gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+    component: 'HedgeArbConfig'
   }
 }
 
@@ -499,7 +527,7 @@ const BOT_TYPE_MAP = {
 
 export default {
   name: 'BotCreateWizard',
-  components: { GridConfig, MartingaleConfig, TrendConfig, DCAConfig },
+  components: { GridConfig, MartingaleConfig, TrendConfig, DCAConfig, HedgeArbConfig },
   props: {
     botType: { type: String, required: true },
     aiPreset: { type: Object, default: null },
@@ -746,6 +774,9 @@ export default {
     isGridLikeBot () {
       return this.botType === 'grid' || this.botType === 'dca'
     },
+    isHedgeArbBot () {
+      return this.botType === 'hedge_arb'
+    },
     isZhLocale () {
       return String(this.$i18n?.locale || '').toLowerCase().startsWith('zh')
     },
@@ -896,6 +927,11 @@ export default {
     }
   },
   created () {
+    if (this.botType === 'hedge_arb' && !this.editBot) {
+      this.baseForm.marketCategory = 'Crypto'
+      this.baseForm.marketType = 'swap'
+      this.baseForm.leverage = 1
+    }
     this.loadCredentials()
     if (this.editBot) {
       this.applyEditBot()
@@ -968,6 +1004,13 @@ export default {
         totalBudget: this.$t('trading-bot.dca.totalBudget'),
         dipBuyEnabled: this.$t('trading-bot.dca.dipBuy'),
         dipThreshold: this.$t('trading-bot.dca.dipThreshold'),
+        notionalUsdt: this.$t('trading-bot.hedgeArb.notionalUsdt'),
+        entryFundingRate: this.$t('trading-bot.hedgeArb.entryFundingRate'),
+        exitFundingRate: this.$t('trading-bot.hedgeArb.exitFundingRate'),
+        maxBasisPct: this.$t('trading-bot.hedgeArb.maxBasisPct'),
+        rebalanceThresholdPct: this.$t('trading-bot.hedgeArb.rebalanceThresholdPct'),
+        tickIntervalSec: this.$t('trading-bot.hedgeArb.tickIntervalSec'),
+        maxHoldHours: this.$t('trading-bot.hedgeArb.maxHoldHours'),
         // Trailing TP fields (shared between martingale and trend bots).
         trailingTpEnabled: this.fallbackLabel('启用追踪止盈', 'Trailing TP'),
         trailingTpActivationPct: this.fallbackLabel('追踪止盈激活涨幅', 'Trailing TP Activation %'),
@@ -1041,8 +1084,12 @@ export default {
         return `${formatPercentDisplay(display, 2)}%`
       }
       if (['priceDropPct', 'takeProfitPct', 'stopLossPct', 'dipThreshold', 'positionPct',
-           'trailingTpActivationPct', 'trailingTpCallbackPct', 'initialPositionPct'].includes(key)) {
+           'trailingTpActivationPct', 'trailingTpCallbackPct', 'initialPositionPct',
+           'entryFundingRate', 'exitFundingRate', 'maxBasisPct', 'rebalanceThresholdPct'].includes(key)) {
         return `${value}%`
+      }
+      if (key === 'tickIntervalSec') {
+        return `${value}s`
       }
       if ([
         'amountPerGrid',
@@ -1110,7 +1157,20 @@ export default {
       this.baseForm.initialCapital = tc.initial_capital || 1000
       this.baseForm.credentialId = bot.exchange_config?.credential_id || undefined
       this.currentExchangeId = (bot.exchange_config?.exchange_id || '').toLowerCase()
-      if (tc.bot_params && typeof tc.bot_params === 'object') {
+      if (this.botType === 'hedge_arb') {
+        this.baseForm.marketCategory = 'Crypto'
+        this.baseForm.marketType = 'swap'
+        this.baseForm.leverage = 1
+        this.strategyParams = {
+          notionalUsdt: tc.notional_usdt ?? tc.bot_params?.notionalUsdt ?? 1000,
+          entryFundingRate: ratioOrPercentToUiPercent(tc.entry_funding_rate ?? tc.bot_params?.entryFundingRate ?? 0.0001, 4),
+          exitFundingRate: ratioOrPercentToUiPercent(tc.exit_funding_rate ?? tc.bot_params?.exitFundingRate ?? 0, 4),
+          maxBasisPct: ratioOrPercentToUiPercent(tc.max_basis_pct ?? tc.bot_params?.maxBasisPct ?? 0.005, 2),
+          rebalanceThresholdPct: ratioOrPercentToUiPercent(tc.rebalance_threshold_pct ?? tc.bot_params?.rebalanceThresholdPct ?? 0.02, 2),
+          tickIntervalSec: tc.tick_interval_sec ?? tc.bot_params?.tickIntervalSec ?? 300,
+          maxHoldHours: tc.max_hold_hours ?? tc.bot_params?.maxHoldHours ?? 0
+        }
+      } else if (tc.bot_params && typeof tc.bot_params === 'object') {
         this.strategyParams = this.normalizeStrategyParams({ ...tc.bot_params })
       }
       this.riskForm.stopLossPct = this.botType === 'martingale'
@@ -1351,6 +1411,10 @@ export default {
         } catch {
           return
         }
+        if (this.isHedgeArbBot && this.currentExchangeId !== 'binance') {
+          this.$message.warning(this.$t('trading-bot.hedgeArb.binanceRequired'))
+          return
+        }
       }
       if (this.currentStep === 1 && this.$refs.strategyConfig) {
         try {
@@ -1401,9 +1465,14 @@ export default {
       })
       const market = this.baseForm.marketCategory || 'Crypto'
       const isStockMarket = ['usstock', 'cnstock', 'hkstock'].includes(String(market || '').toLowerCase())
-      const marketType = isStockMarket ? 'spot' : this.baseForm.marketType
-      const leverage = marketType === 'spot' ? 1 : (this.baseForm.leverage || 5)
-      const tradeDirection = isStockMarket ? 'long' : this.resolveTradeDirection(strategyParams)
+      let marketType = isStockMarket ? 'spot' : this.baseForm.marketType
+      let leverage = marketType === 'spot' ? 1 : (this.baseForm.leverage || 5)
+      let tradeDirection = isStockMarket ? 'long' : this.resolveTradeDirection(strategyParams)
+      if (this.isHedgeArbBot) {
+        marketType = 'swap'
+        leverage = 1
+        tradeDirection = 'long'
+      }
 
       // Validate broker x market compatibility against the policy snapshot.
       // The backend will re-validate via broker_market_policy.validate_strategy_config
@@ -1419,6 +1488,26 @@ export default {
         throw new Error(
           this.$t('trading-bot.wizard.botTypeNotSupportedOnMarket', { market: this.currentMarketLabel })
         )
+      }
+      if (this.isHedgeArbBot && exId !== 'binance') {
+        throw new Error(this.$t('trading-bot.hedgeArb.binanceRequired'))
+      }
+
+      const hedgeArbExtras = {}
+      if (this.isHedgeArbBot) {
+        const p = strategyParams
+        const sym = this.baseForm.symbol
+        hedgeArbExtras.notional_usdt = p.notionalUsdt
+        hedgeArbExtras.entry_funding_rate = p.entryFundingRate / 100
+        hedgeArbExtras.exit_funding_rate = p.exitFundingRate / 100
+        hedgeArbExtras.max_basis_pct = p.maxBasisPct / 100
+        hedgeArbExtras.rebalance_threshold_pct = p.rebalanceThresholdPct / 100
+        hedgeArbExtras.tick_interval_sec = p.tickIntervalSec
+        hedgeArbExtras.max_hold_hours = p.maxHoldHours
+        hedgeArbExtras.hedge_legs = [
+          { market_type: 'spot', symbol: sym, role: 'long' },
+          { market_type: 'swap', symbol: sym, role: 'short' }
+        ]
       }
 
       return {
@@ -1439,12 +1528,13 @@ export default {
           leverage: leverage,
           trade_direction: tradeDirection,
           initial_capital: this.baseForm.initialCapital,
-          stop_loss_pct: this.botType === 'martingale' ? 0 : this.riskForm.stopLossPct,
-          take_profit_pct: this.botType === 'martingale' ? 0 : this.riskForm.takeProfitPct,
-          max_position: this.botType === 'martingale' ? 0 : this.riskForm.maxPosition,
+          stop_loss_pct: (this.botType === 'martingale' || this.isHedgeArbBot) ? 0 : this.riskForm.stopLossPct,
+          take_profit_pct: (this.botType === 'martingale' || this.isHedgeArbBot) ? 0 : this.riskForm.takeProfitPct,
+          max_position: (this.botType === 'martingale' || this.isHedgeArbBot) ? 0 : this.riskForm.maxPosition,
           max_daily_loss: this.riskForm.maxDailyLoss,
           bot_type: this.botType,
           bot_params: strategyParams,
+          ...hedgeArbExtras,
           // Grid-only knobs — backend ignores them for trend/martingale, and
           // sending them as undefined would override the server-side default
           // of 1s for grid bots, so only attach them on grid/dca.
