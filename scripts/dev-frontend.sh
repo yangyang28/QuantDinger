@@ -43,7 +43,12 @@ else
   exit 1
 fi
 
-if [ ! -d "$FRONTEND_DIR/.git" ] || [ ! -d "$FRONTEND_DIR/node_modules" ]; then
+if [ ! -f "$FRONTEND_DIR/package.json" ]; then
+  echo "error: frontend source not found at $FRONTEND_DIR" >&2
+  exit 1
+fi
+
+if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
   bash "$ROOT_DIR/scripts/setup-frontend.sh"
 fi
 
