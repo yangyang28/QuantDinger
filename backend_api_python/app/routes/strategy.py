@@ -25,6 +25,7 @@ from app.routes import strategy_account_routes  # noqa: E402,F401
 from app.routes import strategy_backtest_routes  # noqa: E402,F401
 from app.routes import strategy_deviation_routes  # noqa: E402,F401
 from app.routes import strategy_grid_routes  # noqa: E402,F401
+from app.routes import strategy_hedge_arb_routes  # noqa: E402,F401
 from app.routes import strategy_ledger_routes  # noqa: E402,F401
 from app.routes import strategy_logs_routes  # noqa: E402,F401
 from app.routes import strategy_notifications  # noqa: E402,F401

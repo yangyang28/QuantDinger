@@ -170,6 +170,26 @@
     "tags": ["pairs", "stat-arb", "spread", "advanced"]
   },
   {
+    "key": "funding_arb",
+    "name": "资金费率对冲",
+    "name_en": "Funding Rate Hedge",
+    "description": "现货做多 + 永续做空，收取正 funding，保持 delta 中性。",
+    "description_en": "Long spot + short perpetual to collect positive funding while staying delta-neutral.",
+    "category": "statistical_arbitrage",
+    "difficulty": "advanced",
+    "markets": ["Crypto"],
+    "default_params": {
+      "symbol": "BTC/USDT",
+      "notional_usdt": 1000,
+      "entry_funding_rate": 0.0001,
+      "exit_funding_rate": 0.0,
+      "rebalance_threshold_pct": 0.02,
+      "tick_interval_sec": 300,
+      "timeframe": "1H"
+    },
+    "tags": ["hedge", "funding", "arbitrage", "advanced"]
+  },
+  {
     "key": "momentum_rotation",
     "name": "动量轮动",
     "name_en": "Momentum Rotation",

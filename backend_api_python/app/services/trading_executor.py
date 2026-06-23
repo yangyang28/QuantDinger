@@ -2220,6 +2220,14 @@ class TradingExecutor:
                     tick_interval_sec = max(1, int(os.getenv('GRID_STRATEGY_TICK_SEC', '1')))
                 except Exception:
                     tick_interval_sec = 1
+            elif _bot_type_for_tick == 'hedge_arb':
+                try:
+                    tick_interval_sec = max(
+                        60,
+                        int((trading_config or {}).get('tick_interval_sec') or os.getenv('HEDGE_ARB_TICK_SEC', '300')),
+                    )
+                except Exception:
+                    tick_interval_sec = 300
             else:
                 tick_interval_sec = None
                 try:
@@ -2437,6 +2445,18 @@ class TradingExecutor:
                                 logger.error(f"Strategy {strategy_id} {exit_reason}")
                                 _set_db_stopped_best_effort(exit_reason)
                                 break
+                        elif self._bot_type_key(trading_config) == "hedge_arb" and execution_mode == "live":
+                            try:
+                                from app.services.hedge_arb.runner import run_hedge_arb_tick
+                                run_hedge_arb_tick(
+                                    strategy_id,
+                                    user_id=int(user_id or 1),
+                                    exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
+                                    trading_config=trading_config if isinstance(trading_config, dict) else {},
+                                )
+                                pending_signals = []
+                            except Exception as e:
+                                logger.warning(f"Strategy {strategy_id} hedge_arb tick error: {e}")
                         # 3a2. Bot-mode scripts (martingale / DCA tick; grid uses resting engine)
                         elif (
                             is_script
