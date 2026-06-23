@@ -1,0 +1,12 @@
+# Development override: keep the Nginx frontend container out of the default
+# `docker compose up` set so you can run the Vite dev server on :8000 instead.
+#
+# Start backend stack only (postgres, redis, backend):
+#   docker compose up -d
+#
+# Include the locally-built frontend image on :8888:
+#   docker compose --profile with-frontend-image up -d
+
+services:
+  frontend:
+    profiles: ["with-frontend-image"]
