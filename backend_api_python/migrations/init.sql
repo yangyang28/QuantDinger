@@ -529,6 +529,24 @@ CREATE TABLE IF NOT EXISTS qd_grid_resting_orders (
 );
 CREATE INDEX IF NOT EXISTS idx_grid_resting_strategy ON qd_grid_resting_orders(strategy_id, status);
 
+-- Spot + perpetual funding / basis hedge state (bot_type=hedge_arb).
+CREATE TABLE IF NOT EXISTS qd_hedge_arb_state (
+    strategy_id INTEGER PRIMARY KEY REFERENCES qd_strategies_trading(id) ON DELETE CASCADE,
+    status VARCHAR(24) NOT NULL DEFAULT 'flat',
+    symbol VARCHAR(50) NOT NULL DEFAULT '',
+    spot_qty DECIMAL(24, 8) NOT NULL DEFAULT 0,
+    perp_qty DECIMAL(24, 8) NOT NULL DEFAULT 0,
+    entry_basis_pct DECIMAL(20, 8) NOT NULL DEFAULT 0,
+    entry_funding_rate DECIMAL(20, 8) NOT NULL DEFAULT 0,
+    cumulative_funding_est DECIMAL(20, 8) NOT NULL DEFAULT 0,
+    entered_at TIMESTAMP,
+    last_rebalance_at TIMESTAMP,
+    last_error TEXT DEFAULT '',
+    extra JSONB DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_hedge_arb_state_status ON qd_hedge_arb_state(status);
+
 -- =============================================================================
 -- 5. Pending Orders Queue
 -- =============================================================================

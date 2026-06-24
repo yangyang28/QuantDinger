@@ -83,7 +83,7 @@ class TestHelpers:
 
     def test_allowed_bot_types_per_market(self):
         # Crypto: every bot type is supported.
-        assert allowed_bot_types("Crypto") == {"grid", "martingale", "dca", "trend"}
+        assert allowed_bot_types("Crypto") == {"grid", "martingale", "dca", "trend", "hedge_arb"}
         # Forex: no martingale (gap risk), no perp shorts.
         assert allowed_bot_types("Forex") == {"grid", "dca", "trend"}
         # USStock: no grid (overnight gaps), no martingale.

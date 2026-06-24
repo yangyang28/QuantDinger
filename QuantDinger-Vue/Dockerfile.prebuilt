@@ -1,0 +1,18 @@
+# Local / CI fast path: reuse an existing `pnpm build` output in ./dist
+# without pulling node:18-alpine. Usage:
+#   pnpm run build
+#   docker build -f Dockerfile.prebuilt -t quantdinger-frontend:local .
+
+ARG NGINX_IMAGE=nginx:1.25-alpine
+FROM ${NGINX_IMAGE}
+
+RUN apk add --no-cache curl
+
+ENV NGINX_ENVSUBST_FILTER=BACKEND_URL \
+    BACKEND_URL=http://backend:5000
+
+COPY deploy/nginx-docker.conf.template /etc/nginx/templates/default.conf.template
+COPY dist /usr/share/nginx/html
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
