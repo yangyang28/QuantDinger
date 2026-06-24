@@ -53,7 +53,11 @@ if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
 fi
 
 echo "Starting backend stack (postgres, redis, backend) ..."
-"${COMPOSE_CMD[@]}" up -d postgres redis backend
+"${COMPOSE_CMD[@]}" \
+  -f docker-compose.yml \
+  -f docker-compose.build.yml \
+  -f docker-compose.dev.yml \
+  up -d postgres redis backend
 
 echo "Waiting for backend at $HEALTH_URL (up to ${MAX_WAIT}s) ..."
 deadline=$((SECONDS + MAX_WAIT))
