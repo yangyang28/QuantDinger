@@ -204,6 +204,13 @@
             <div v-if="botType === 'martingale'" class="form-hint">{{ martingaleBudgetHint }}</div>
           </a-form-model-item>
 
+          <a-form-model-item v-if="isHedgeArbBot" :label="$t('trading-bot.grid.orderType')">
+            <a-tag color="blue">{{ $t('trading-bot.grid.bestPriceOrder') }}</a-tag>
+            <div class="form-hint" style="margin-top: 6px;">
+              {{ $t('trading-bot.hedgeArb.bestPriceOrderHint') }}
+            </div>
+          </a-form-model-item>
+
         </a-form-model>
       </div>
 
@@ -350,6 +357,9 @@
             </a-descriptions-item>
             <a-descriptions-item :label="capitalLabel">
               ${{ baseForm.initialCapital }}
+            </a-descriptions-item>
+            <a-descriptions-item v-if="isHedgeArbBot" :label="$t('trading-bot.grid.orderType')">
+              {{ $t('trading-bot.grid.bestPriceOrder') }}
             </a-descriptions-item>
           </a-descriptions>
 
@@ -1052,7 +1062,8 @@ export default {
       if (key === 'orderMode') {
         const map = {
           maker: this.$t('trading-bot.grid.limitOrder'),
-          market: this.$t('trading-bot.grid.marketOrder')
+          market: this.$t('trading-bot.grid.marketOrder'),
+          best: this.$t('trading-bot.grid.bestPriceOrder')
         }
         return map[value] || value
       }
@@ -1508,7 +1519,11 @@ export default {
           { market_type: 'spot', symbol: sym, role: 'long' },
           { market_type: 'swap', symbol: sym, role: 'short' }
         ]
+        hedgeArbExtras.entry_order_mode = 'best'
+        hedgeArbExtras.order_mode = 'best'
       }
+
+      const hedgeArbOrderMode = this.isHedgeArbBot ? 'best' : null
 
       return {
         strategy_name: this.baseForm.botName,
@@ -1543,9 +1558,10 @@ export default {
                 grid_oob_buffer_pct: this.riskForm.gridOobBufferPct
               }
             : {}),
-          order_mode: (this.botType === 'martingale' || this.botType === 'trend')
-            ? 'market'
-            : (strategyParams.orderMode || 'maker'),
+          order_mode: hedgeArbOrderMode
+            || ((this.botType === 'martingale' || this.botType === 'trend')
+              ? 'market'
+              : (strategyParams.orderMode || 'maker')),
           entry_trigger_mode: 'immediate'
         },
         notification_config: {

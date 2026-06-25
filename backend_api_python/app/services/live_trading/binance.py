@@ -873,6 +873,89 @@ class BinanceFuturesClient(BaseRestClient):
             raw=raw,
         )
 
+    def place_best_price_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: float,
+        reduce_only: bool = False,
+        position_side: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+    ) -> LiveOrderResult:
+        """
+        Binance USDT-M「最优价 / 对手价」：LIMIT + IOC + priceMatch=OPPONENT。
+        未成交或接口不支持时回退为 MARKET。
+        """
+        sym = to_binance_futures_symbol(symbol)
+        sd = (side or "").upper()
+        if sd not in ("BUY", "SELL"):
+            raise LiveTradingError(f"Invalid side: {side}")
+        q_req = float(quantity or 0.0)
+        q_dec, qty_precision = self._normalize_quantity(symbol=symbol, quantity=q_req, for_market=True)
+        if float(q_dec or 0) <= 0:
+            raise LiveTradingError(f"Invalid quantity (below step/minQty): requested={q_req}")
+
+        params: Dict[str, Any] = {
+            "symbol": sym,
+            "side": sd,
+            "type": "LIMIT",
+            "timeInForce": "IOC",
+            "priceMatch": "OPPONENT",
+            "quantity": self._dec_str(q_dec, strict_precision=qty_precision),
+        }
+        client_order_id_norm = self._format_client_order_id(client_order_id)
+        if client_order_id_norm:
+            params["newClientOrderId"] = client_order_id_norm
+
+        dual_side = self.get_dual_side_position()
+        pos_norm = self._normalize_position_side(position_side)
+        if dual_side is True:
+            params["positionSide"] = (
+                pos_norm if pos_norm in ("LONG", "SHORT")
+                else self._infer_position_side(side=sd, reduce_only=reduce_only)
+            )
+        elif dual_side is False:
+            params.pop("positionSide", None)
+        else:
+            params.pop("positionSide", None)
+
+        if reduce_only and not (dual_side is True and params.get("positionSide") in ("LONG", "SHORT")):
+            params["reduceOnly"] = "true"
+
+        try:
+            raw = self._signed_request("POST", "/fapi/v1/order", params=params)
+        except LiveTradingError as e:
+            logger.info("Binance best-price order fallback to MARKET sid=%s: %s", sym, e)
+            return self.place_market_order(
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                reduce_only=reduce_only,
+                position_side=position_side,
+                client_order_id=client_order_id,
+            )
+
+        filled = float(raw.get("executedQty") or 0.0)
+        if filled <= 0:
+            return self.place_market_order(
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                reduce_only=reduce_only,
+                position_side=position_side,
+                client_order_id=client_order_id,
+            )
+
+        avg_price = float(raw.get("avgPrice") or raw.get("price") or 0.0)
+        return LiveOrderResult(
+            exchange_id="binance",
+            exchange_order_id=str(raw.get("orderId") or raw.get("clientOrderId") or ""),
+            filled=filled,
+            avg_price=avg_price,
+            raw=raw,
+        )
+
     def place_limit_order(
         self,
         *,

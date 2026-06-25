@@ -959,7 +959,15 @@ class StrategyService:
                 self._display_item('dipThreshold', 'trading-bot.dca.dipThreshold', self._to_float(params.get('dipThreshold'), 0.0), 'percent'),
             ]
         elif bot_type == 'hedge_arb':
+            entry_mode = str(tc.get('entry_order_mode') or tc.get('order_mode') or 'best').strip().lower()
+            if entry_mode in ('maker', 'limit', 'limit_first', 'maker_then_market'):
+                entry_mode = 'best'
+            entry_mode_key = {
+                'best': 'trading-bot.grid.bestPriceOrder',
+                'market': 'trading-bot.grid.marketOrder',
+            }.get(entry_mode, 'trading-bot.grid.bestPriceOrder')
             display['strategy_params'] = [
+                self._display_item('entryOrderMode', 'trading-bot.grid.orderType', entry_mode, 'enum', entry_mode_key),
                 self._display_item('notionalUsdt', 'trading-bot.hedgeArb.notionalUsdt', self._to_float(tc.get('notional_usdt'), 1000.0), 'usdt'),
                 self._display_item('entryFundingRate', 'trading-bot.hedgeArb.entryFundingRate', self._to_float(tc.get('entry_funding_rate'), 0.0001) * 100, 'percent'),
                 self._display_item('exitFundingRate', 'trading-bot.hedgeArb.exitFundingRate', self._to_float(tc.get('exit_funding_rate'), 0.0) * 100, 'percent'),

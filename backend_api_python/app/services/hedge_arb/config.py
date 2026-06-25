@@ -23,6 +23,8 @@ class HedgeArbConfig:
     max_hold_hours: float = 0.0
     tick_interval_sec: int = 300
     leverage: float = 1.0
+    # Entry execution: best = Binance 最优/对手价 (IOC+priceMatch), market = plain MARKET.
+    entry_order_mode: str = "best"
     legs: List[HedgeLegConfig] = field(default_factory=list)
 
     def spot_symbol(self) -> str:
@@ -50,6 +52,18 @@ def _int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_entry_order_mode(raw: Any) -> str:
+    mode = str(raw or "best").strip().lower()
+    if mode in ("best", "best_price", "opponent", "最优", "最优价"):
+        return "best"
+    if mode in ("market", "taker"):
+        return "market"
+    # Legacy bot wizard stored maker/limit for hedge_arb — treat as best-price entry.
+    if mode in ("maker", "limit", "limit_first", "maker_then_market"):
+        return "best"
+    return "best"
 
 
 def parse_hedge_arb_config(trading_config: Optional[Dict[str, Any]]) -> HedgeArbConfig:
@@ -86,5 +100,8 @@ def parse_hedge_arb_config(trading_config: Optional[Dict[str, Any]]) -> HedgeArb
         max_hold_hours=_float(tc.get("max_hold_hours"), 0.0),
         tick_interval_sec=max(60, _int(tc.get("tick_interval_sec"), 300)),
         leverage=max(1.0, _float(tc.get("leverage"), 1.0)),
+        entry_order_mode=_normalize_entry_order_mode(
+            tc.get("entry_order_mode") or tc.get("order_mode") or "best"
+        ),
         legs=legs,
     )

@@ -40,6 +40,14 @@ class TestHedgeArbConfig:
         assert cfg.entry_funding_rate == 0.0002
         assert cfg.notional_usdt == 500
 
+    def test_entry_order_mode_defaults_best(self):
+        cfg = parse_hedge_arb_config({"symbol": "BTC/USDT"})
+        assert cfg.entry_order_mode == "best"
+
+    def test_legacy_limit_maps_to_best(self):
+        cfg = parse_hedge_arb_config({"symbol": "BTC/USDT", "order_mode": "maker"})
+        assert cfg.entry_order_mode == "best"
+
 
 class TestSignals:
     def test_basis(self):
@@ -90,10 +98,10 @@ class TestOrchestratorMocked:
 
         spot = MagicMock()
         perp = MagicMock()
-        spot.place_market_order.return_value = LiveOrderResult(
+        spot.place_best_price_order.return_value = LiveOrderResult(
             "binance", "1", 0.002, 50000.0, {},
         )
-        perp.place_market_order.return_value = LiveOrderResult(
+        perp.place_best_price_order.return_value = LiveOrderResult(
             "binance", "2", 0.002, 50000.0, {},
         )
         create_client.side_effect = [spot, perp, spot, perp]
@@ -104,8 +112,8 @@ class TestOrchestratorMocked:
             gs.return_value = HedgeArbSignals("BTC/USDT", 0.0002, 50000, 50010, 0.0002)
             result = orch.enter()
         assert result["ok"] is True
-        assert spot.place_market_order.called
-        assert perp.place_market_order.called
+        assert spot.place_best_price_order.called
+        assert perp.place_best_price_order.called
 
     @patch("app.services.hedge_arb.orchestrator.create_client")
     @patch("app.services.hedge_arb.orchestrator.HedgeArbStateRepository")
@@ -115,11 +123,11 @@ class TestOrchestratorMocked:
 
         spot = MagicMock()
         perp = MagicMock()
-        spot.place_market_order.side_effect = [
+        spot.place_best_price_order.side_effect = [
             LiveOrderResult("binance", "1", 0.002, 50000.0, {}),
             LiveOrderResult("binance", "3", 0.002, 50000.0, {}),
         ]
-        perp.place_market_order.side_effect = LiveTradingError("perp failed")
+        perp.place_best_price_order.side_effect = LiveTradingError("perp failed")
 
         create_client.side_effect = [spot, perp, spot, perp]
         orch = self._orch()
@@ -127,7 +135,7 @@ class TestOrchestratorMocked:
             gs.return_value = HedgeArbSignals("BTC/USDT", 0.0002, 50000, 50010, 0.0002)
             with pytest.raises(LiveTradingError):
                 orch.enter()
-        assert spot.place_market_order.call_count >= 2
+        assert spot.place_best_price_order.call_count >= 2
 
 
 class TestBacktest:

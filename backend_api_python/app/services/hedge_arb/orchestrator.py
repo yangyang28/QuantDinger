@@ -51,6 +51,40 @@ class HedgeArbOrchestrator:
     def _symbol(self) -> str:
         return self.config.symbol or self.config.spot_symbol()
 
+    def _place_order(
+        self,
+        client: Any,
+        *,
+        symbol: str,
+        side: str,
+        quantity: float = 0.0,
+        quote_order_qty: float = 0.0,
+        reduce_only: bool = False,
+        position_side: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        for_entry: bool = False,
+    ) -> Any:
+        """Route to best-price (默认) or plain market based on hedge config."""
+        use_best = for_entry and self.config.entry_order_mode != "market"
+        if use_best and getattr(type(client), "place_best_price_order", None) is not None:
+            method = client.place_best_price_order
+        else:
+            method = client.place_market_order
+        kwargs: Dict[str, Any] = {
+            "symbol": symbol,
+            "side": side,
+            "client_order_id": client_order_id,
+        }
+        if quote_order_qty > 0:
+            kwargs["quote_order_qty"] = quote_order_qty
+        else:
+            kwargs["quantity"] = quantity
+        if position_side:
+            kwargs["position_side"] = position_side
+        if reduce_only:
+            kwargs["reduce_only"] = reduce_only
+        return method(**kwargs)
+
     def get_signals(self) -> HedgeArbSignals:
         return collect_signals(self._symbol(), testnet=self._testnet)
 
@@ -119,22 +153,26 @@ class HedgeArbOrchestrator:
         spot_result = None
         perp_result = None
         try:
-            spot_result = spot_client.place_market_order(
+            spot_result = self._place_order(
+                spot_client,
                 symbol=symbol,
                 side="BUY",
                 quote_order_qty=notional,
                 client_order_id=f"ha{self.strategy_id}s",
+                for_entry=True,
             )
             spot_qty = float(spot_result.filled or 0.0)
             if spot_qty <= 0:
                 raise LiveTradingError("Spot leg filled zero quantity")
 
-            perp_result = perp_client.place_market_order(
+            perp_result = self._place_order(
+                perp_client,
                 symbol=symbol,
                 side="SELL",
                 quantity=spot_qty,
                 position_side="SHORT",
                 client_order_id=f"ha{self.strategy_id}p",
+                for_entry=True,
             )
             perp_qty = float(perp_result.filled or 0.0)
             if perp_qty <= 0:
