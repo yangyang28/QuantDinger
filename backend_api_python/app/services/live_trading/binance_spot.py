@@ -622,6 +622,24 @@ class BinanceSpotClient(BaseRestClient):
             raw=raw,
         )
 
+    def place_best_price_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: float = 0.0,
+        quote_order_qty: float = 0.0,
+        client_order_id: Optional[str] = None,
+    ) -> LiveOrderResult:
+        """Spot 最优价：使用 MARKET 立即按盘口最优价成交。"""
+        return self.place_market_order(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            quote_order_qty=quote_order_qty,
+            client_order_id=client_order_id,
+        )
+
     def get_account(self) -> Dict[str, Any]:
         """
         Get spot account balances.

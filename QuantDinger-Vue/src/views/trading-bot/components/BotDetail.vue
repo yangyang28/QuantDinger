@@ -354,11 +354,11 @@
                   <span class="param-label">{{ capitalLabel }}</span>
                   <span class="param-value highlight">{{ formatNum(tc.initial_capital) }} USDT</span>
                 </div>
-                <div class="param-item" v-if="tc.order_mode">
+                <div class="param-item" v-if="showBasicOrderMode">
                   <span class="param-label">{{ $t('trading-bot.grid.orderType') }}</span>
                   <span class="param-value">
-                    <a-tag :color="tc.order_mode === 'maker' ? 'green' : 'blue'" size="small">
-                      {{ tc.order_mode === 'maker' ? $t('trading-bot.grid.limitOrder') : $t('trading-bot.grid.marketOrder') }}
+                    <a-tag :color="basicOrderModeColor" size="small">
+                      {{ basicOrderModeLabel }}
                     </a-tag>
                   </span>
                 </div>
@@ -607,7 +607,7 @@ const PARAM_LABEL_MAP = {
 const VALUE_DISPLAY_MAP = {
   gridMode: { arithmetic: 'trading-bot.grid.arithmetic', geometric: 'trading-bot.grid.geometric' },
   gridDirection: { neutral: 'trading-bot.grid.neutral', long: 'trading-bot.grid.long', short: 'trading-bot.grid.short' },
-  orderMode: { maker: 'trading-bot.grid.limitOrder', market: 'trading-bot.grid.marketOrder' },
+  orderMode: { maker: 'trading-bot.grid.limitOrder', market: 'trading-bot.grid.marketOrder', best: 'trading-bot.grid.bestPriceOrder' },
   boundaryAction: {
     pause: 'trading-bot.grid.boundaryPause',
     stop_loss: 'trading-bot.grid.boundaryStopLoss',
@@ -744,6 +744,33 @@ export default {
     isHedgeArbBot () {
       const bt = this.bot?.bot_type || this.tc.bot_type
       return bt === 'hedge_arb'
+    },
+    showBasicOrderMode () {
+      if (this.isHedgeArbBot) return true
+      return !!this.tc.order_mode
+    },
+    basicOrderModeLabel () {
+      const raw = String(
+        this.isHedgeArbBot
+          ? (this.tc.entry_order_mode || this.tc.order_mode || 'best')
+          : (this.tc.order_mode || 'maker')
+      ).toLowerCase()
+      if (this.isHedgeArbBot) {
+        if (raw === 'market') return this.$t('trading-bot.grid.marketOrder')
+        return this.$t('trading-bot.grid.bestPriceOrder')
+      }
+      if (raw === 'maker' || raw === 'limit') return this.$t('trading-bot.grid.limitOrder')
+      if (raw === 'best') return this.$t('trading-bot.grid.bestPriceOrder')
+      return this.$t('trading-bot.grid.marketOrder')
+    },
+    basicOrderModeColor () {
+      const raw = String(
+        this.isHedgeArbBot
+          ? (this.tc.entry_order_mode || this.tc.order_mode || 'best')
+          : (this.tc.order_mode || 'maker')
+      ).toLowerCase()
+      if (this.isHedgeArbBot) return raw === 'market' ? 'blue' : 'geekblue'
+      return raw === 'maker' || raw === 'limit' ? 'green' : 'blue'
     },
     hedgeArbSignals () {
       return (this.hedgeArbStatus && this.hedgeArbStatus.signals) || {}

@@ -12,6 +12,10 @@
       style="margin-bottom: 16px;"
       :message="$t('trading-bot.hedgeArb.configHint')"
     />
+    <a-form-model-item :label="$t('trading-bot.grid.orderType')">
+      <a-tag color="geekblue">{{ $t('trading-bot.grid.bestPriceOrder') }}</a-tag>
+      <div class="field-hint">{{ $t('trading-bot.hedgeArb.bestPriceOrderHint') }}</div>
+    </a-form-model-item>
     <a-form-model-item :label="$t('trading-bot.hedgeArb.notionalUsdt')" prop="notionalUsdt">
       <a-input-number
         v-model="form.notionalUsdt"

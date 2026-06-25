@@ -183,6 +183,8 @@
       "notional_usdt": 1000,
       "entry_funding_rate": 0.0001,
       "exit_funding_rate": 0.0,
+      "entry_order_mode": "best",
+      "order_mode": "best",
       "rebalance_threshold_pct": 0.02,
       "tick_interval_sec": 300,
       "timeframe": "1H"
