@@ -2336,7 +2336,7 @@ class TradingExecutor:
                     # hedge_arb: orchestrator tick every strategy poll (not tied to K-line branch).
                     if self._run_hedge_arb_live_tick(
                         strategy_id,
-                        user_id=int(user_id or 1),
+                        user_id=int(strategy_user_id or strategy.get('user_id') or 1),
                         exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
                         trading_config=trading_config if isinstance(trading_config, dict) else {},
                         execution_mode=execution_mode,
