@@ -26,6 +26,26 @@ def _hold_hours(entered_at: Optional[str]) -> float:
         return 0.0
 
 
+def _enter_skip_reason(
+    signals,
+    *,
+    entry_funding_rate: float,
+    max_basis_pct: float,
+) -> str:
+    parts: list[str] = []
+    if signals.funding_rate < entry_funding_rate:
+        parts.append(
+            f"funding={signals.funding_rate:.6f} < entry={entry_funding_rate:.6f}"
+        )
+    if max_basis_pct > 0 and abs(signals.basis_pct) > max_basis_pct:
+        parts.append(
+            f"|basis|={abs(signals.basis_pct):.4%} > max={max_basis_pct:.4%}"
+        )
+    if signals.spot_price <= 0 or signals.perp_mark_price <= 0:
+        parts.append("missing spot/perp price")
+    return "; ".join(parts) if parts else "conditions not met"
+
+
 def run_hedge_arb_tick(
     strategy_id: int,
     *,
@@ -55,6 +75,12 @@ def run_hedge_arb_tick(
                 orch.enter()
             except Exception as e:
                 logger.warning("hedge_arb enter sid=%s: %s", strategy_id, e)
+        else:
+            append_strategy_log(
+                strategy_id,
+                "info",
+                f"Hedge flat — skip enter: {_enter_skip_reason(signals, entry_funding_rate=cfg.entry_funding_rate, max_basis_pct=cfg.max_basis_pct)}",
+            )
         return
 
     hold_h = _hold_hours(state.entered_at)

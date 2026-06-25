@@ -1091,6 +1091,37 @@ class TradingExecutor:
     def _bot_type_key(self, trading_config: Optional[Dict[str, Any]]) -> str:
         return str((trading_config or {}).get("bot_type") or "").strip().lower()
 
+    def _is_script_driven_bot(self, trading_config: Optional[Dict[str, Any]]) -> bool:
+        """Bot types whose on_bar script drives entries; hedge_arb uses orchestrator instead."""
+        return self._bot_type_key(trading_config) not in ("grid", "hedge_arb")
+
+    def _run_hedge_arb_live_tick(
+        self,
+        strategy_id: int,
+        *,
+        user_id: int,
+        exchange_config: Dict[str, Any],
+        trading_config: Dict[str, Any],
+        execution_mode: str,
+    ) -> bool:
+        """Run funding/basis orchestrator tick. Returns True when handled."""
+        if self._bot_type_key(trading_config) != "hedge_arb":
+            return False
+        if str(execution_mode or "").strip().lower() != "live":
+            return False
+        try:
+            from app.services.hedge_arb.runner import run_hedge_arb_tick
+
+            run_hedge_arb_tick(
+                strategy_id,
+                user_id=int(user_id or 1),
+                exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
+                trading_config=trading_config if isinstance(trading_config, dict) else {},
+            )
+        except Exception as e:
+            logger.warning(f"Strategy {strategy_id} hedge_arb tick error: {e}")
+        return True
+
     def _is_live_grid_resting(
         self,
         trading_config: Optional[Dict[str, Any]],
@@ -2302,6 +2333,18 @@ class TradingExecutor:
                             break
                         continue
 
+                    # hedge_arb: orchestrator tick every strategy poll (not tied to K-line branch).
+                    if self._run_hedge_arb_live_tick(
+                        strategy_id,
+                        user_id=int(user_id or 1),
+                        exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
+                        trading_config=trading_config if isinstance(trading_config, dict) else {},
+                        execution_mode=execution_mode,
+                    ):
+                        pending_signals = []
+                        consecutive_errors = 0
+                        continue
+
                     # ============================================
                     # ============================================
                     if current_time >= next_kline_poll_at:
@@ -2339,7 +2382,7 @@ class TradingExecutor:
                                                 last_kline_time = int(df.index[-1].timestamp())
                                             except Exception:
                                                 last_kline_time = int(time.time())
-                                        elif self._bot_type_key(trading_config) != "grid":
+                                        elif self._is_script_driven_bot(trading_config):
                                             new_sig, last_script_closed_ts = self._script_evaluate_new_closed_bar(
                                                 df, script_ctx, on_bar_script, trade_direction,
                                                 last_script_closed_ts, strategy_id, symbol, trading_config,
@@ -2445,25 +2488,13 @@ class TradingExecutor:
                                 logger.error(f"Strategy {strategy_id} {exit_reason}")
                                 _set_db_stopped_best_effort(exit_reason)
                                 break
-                        elif self._bot_type_key(trading_config) == "hedge_arb" and execution_mode == "live":
-                            try:
-                                from app.services.hedge_arb.runner import run_hedge_arb_tick
-                                run_hedge_arb_tick(
-                                    strategy_id,
-                                    user_id=int(user_id or 1),
-                                    exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
-                                    trading_config=trading_config if isinstance(trading_config, dict) else {},
-                                )
-                                pending_signals = []
-                            except Exception as e:
-                                logger.warning(f"Strategy {strategy_id} hedge_arb tick error: {e}")
                         # 3a2. Bot-mode scripts (martingale / DCA tick; grid uses resting engine)
                         elif (
                             is_script
                             and is_bot_mode
                             and on_bar_script
                             and script_ctx is not None
-                            and self._bot_type_key(trading_config) != "grid"
+                            and self._is_script_driven_bot(trading_config)
                         ):
                             try:
                                 self._hydrate_script_ctx_from_positions(

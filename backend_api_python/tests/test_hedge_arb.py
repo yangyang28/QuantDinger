@@ -15,6 +15,7 @@ from app.services.hedge_arb.signals import (
     should_enter,
     should_exit,
 )
+from app.services.hedge_arb.runner import _enter_skip_reason
 from app.services.hedge_arb.sizing import notional_drift_pct, rebalance_delta_base, target_base_qty
 from app.services.live_trading.base import LiveOrderResult, LiveTradingError
 
@@ -52,6 +53,11 @@ class TestHedgeArbConfig:
 class TestSignals:
     def test_basis(self):
         assert compute_basis_pct(100.0, 100.5) == pytest.approx(0.005)
+
+    def test_enter_skip_reason_low_funding(self):
+        sig = HedgeArbSignals("BTC/USDT", 0.00005, 100.0, 100.01, 0.0001)
+        reason = _enter_skip_reason(sig, entry_funding_rate=0.0001, max_basis_pct=0.005)
+        assert "funding=" in reason
 
     def test_should_enter(self):
         sig = HedgeArbSignals("BTC/USDT", 0.0002, 100.0, 100.1, 0.001)
