@@ -215,6 +215,7 @@ const locale = {
   'trading-bot.hedgeArb.configHint': 'Runs spot long + USDT-M perp short on Binance; enters when funding is positive.',
   'trading-bot.hedgeArb.notionalUsdt': 'Notional (USDT)',
   'trading-bot.hedgeArb.notionalUsdtPh': 'Spot buy quote amount per entry',
+  'trading-bot.hedgeArb.notionalUsdtHint': 'BTC perp min lot is 0.001 (~≥120 USDT); keep enough USDT in spot wallet',
   'trading-bot.hedgeArb.notionalUsdtReq': 'Notional USDT is required',
   'trading-bot.hedgeArb.entryFundingRate': 'Entry funding threshold',
   'trading-bot.hedgeArb.entryFundingRateHint': 'Enter when funding ≥ this value (8h rate, %)',

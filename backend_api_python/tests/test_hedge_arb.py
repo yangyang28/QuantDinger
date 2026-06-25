@@ -1,6 +1,7 @@
 """Unit tests for hedge_arb config, signals, sizing, orchestrator, and backtest."""
 from __future__ import annotations
 
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,7 +17,12 @@ from app.services.hedge_arb.signals import (
     should_exit,
 )
 from app.services.hedge_arb.runner import _enter_skip_reason
-from app.services.hedge_arb.sizing import notional_drift_pct, rebalance_delta_base, target_base_qty
+from app.services.hedge_arb.sizing import (
+    notional_drift_pct,
+    plan_entry_base_qty,
+    rebalance_delta_base,
+    target_base_qty,
+)
 from app.services.live_trading.base import LiveOrderResult, LiveTradingError
 
 
@@ -81,8 +87,45 @@ class TestSizing:
         delta = rebalance_delta_base(0.02, 0.018, 50000, 50000)
         assert delta == pytest.approx(0.002)
 
+    def test_plan_entry_rejects_small_notional(self):
+        spot = MagicMock()
+        perp = MagicMock()
+        perp._normalize_quantity.return_value = (Decimal("0"), 3)
+        perp.get_symbol_filters.return_value = {
+            "LOT_SIZE": {"minQty": "0.001", "stepSize": "0.001"},
+        }
+        spot.get_symbol_filters.return_value = {
+            "LOT_SIZE": {"minQty": "0.00001", "stepSize": "0.00001"},
+        }
+        with pytest.raises(LiveTradingError, match="too small"):
+            plan_entry_base_qty(
+                symbol="BTC/USDT",
+                notional_usdt=100,
+                reference_price=50000,
+                perp_client=perp,
+                spot_client=spot,
+            )
+
 
 class TestOrchestratorMocked:
+    @staticmethod
+    def _mock_clients(*, spot_fill=0.002, perp_fill=0.002):
+        spot = MagicMock()
+        perp = MagicMock()
+        qty = Decimal(str(spot_fill))
+        spot._normalize_quantity.return_value = (qty, 3)
+        perp._normalize_quantity.return_value = (qty, 3)
+        spot.get_account.return_value = {
+            "balances": [{"asset": "USDT", "free": "10000"}],
+        }
+        spot.place_best_price_order.return_value = LiveOrderResult(
+            "binance", "1", spot_fill, 50000.0, {},
+        )
+        perp.place_best_price_order.return_value = LiveOrderResult(
+            "binance", "2", perp_fill, 50000.0, {},
+        )
+        return spot, perp
+
     def _orch(self):
         return HedgeArbOrchestrator(
             strategy_id=1,
@@ -91,7 +134,7 @@ class TestOrchestratorMocked:
             trading_config={
                 "bot_type": "hedge_arb",
                 "symbol": "BTC/USDT",
-                "notional_usdt": 100,
+                "notional_usdt": 1000,
             },
         )
 
@@ -102,15 +145,8 @@ class TestOrchestratorMocked:
         repo = repo_cls.return_value
         repo.ensure_row.return_value = MagicMock(status="flat", spot_qty=0, perp_qty=0)
 
-        spot = MagicMock()
-        perp = MagicMock()
-        spot.place_best_price_order.return_value = LiveOrderResult(
-            "binance", "1", 0.002, 50000.0, {},
-        )
-        perp.place_best_price_order.return_value = LiveOrderResult(
-            "binance", "2", 0.002, 50000.0, {},
-        )
-        create_client.side_effect = [spot, perp, spot, perp]
+        spot, perp = self._mock_clients()
+        create_client.side_effect = [spot, perp]
         read_legs.return_value = (0.002, 0.002)
 
         orch = self._orch()
@@ -127,21 +163,19 @@ class TestOrchestratorMocked:
         repo = repo_cls.return_value
         repo.ensure_row.return_value = MagicMock(status="flat", spot_qty=0, perp_qty=0)
 
-        spot = MagicMock()
-        perp = MagicMock()
-        spot.place_best_price_order.side_effect = [
-            LiveOrderResult("binance", "1", 0.002, 50000.0, {}),
-            LiveOrderResult("binance", "3", 0.002, 50000.0, {}),
-        ]
+        spot, perp = self._mock_clients()
         perp.place_best_price_order.side_effect = LiveTradingError("perp failed")
-
-        create_client.side_effect = [spot, perp, spot, perp]
+        spot.place_market_order.return_value = LiveOrderResult(
+            "binance", "3", 0.002, 50000.0, {},
+        )
+        create_client.side_effect = [spot, perp]
         orch = self._orch()
         with patch.object(orch, "get_signals") as gs:
             gs.return_value = HedgeArbSignals("BTC/USDT", 0.0002, 50000, 50010, 0.0002)
             with pytest.raises(LiveTradingError):
                 orch.enter()
-        assert spot.place_best_price_order.call_count >= 2
+        assert spot.place_best_price_order.call_count >= 1
+        assert spot.place_market_order.called
 
 
 class TestBacktest:

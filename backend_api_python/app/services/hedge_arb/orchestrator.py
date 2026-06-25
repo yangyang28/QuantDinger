@@ -7,7 +7,13 @@ from app.services.exchange_execution import resolve_exchange_config
 from app.services.hedge_arb.config import HedgeArbConfig, parse_hedge_arb_config
 from app.services.hedge_arb.positions import read_live_legs
 from app.services.hedge_arb.signals import HedgeArbSignals, collect_signals
-from app.services.hedge_arb.sizing import notional_drift_pct, rebalance_delta_base, target_base_qty
+from app.services.hedge_arb.sizing import (
+    normalize_market_base_qty,
+    notional_drift_pct,
+    plan_entry_base_qty,
+    rebalance_delta_base,
+    validate_spot_buy_balance,
+)
 from app.services.hedge_arb.state import HedgeArbState, HedgeArbStateRepository, utc_now_iso
 from app.services.live_trading.base import LiveTradingError
 from app.services.live_trading.binance import BinanceFuturesClient
@@ -150,6 +156,15 @@ class HedgeArbOrchestrator:
         if ref_price <= 0:
             raise LiveTradingError("Cannot enter: missing reference price")
 
+        base_qty, quote_est = plan_entry_base_qty(
+            symbol=symbol,
+            notional_usdt=notional,
+            reference_price=ref_price,
+            perp_client=perp_client,
+            spot_client=spot_client,
+        )
+        validate_spot_buy_balance(spot_client=spot_client, quote_required=quote_est)
+
         spot_result = None
         perp_result = None
         try:
@@ -157,7 +172,7 @@ class HedgeArbOrchestrator:
                 spot_client,
                 symbol=symbol,
                 side="BUY",
-                quote_order_qty=notional,
+                quantity=base_qty,
                 client_order_id=f"ha{self.strategy_id}s",
                 for_entry=True,
             )
@@ -165,23 +180,35 @@ class HedgeArbOrchestrator:
             if spot_qty <= 0:
                 raise LiveTradingError("Spot leg filled zero quantity")
 
+            perp_qty_req = normalize_market_base_qty(
+                perp_client, symbol=symbol, quantity=spot_qty,
+            )
+            if perp_qty_req <= 0:
+                raise LiveTradingError(
+                    f"Perp qty below min lot after spot fill: spot={spot_qty:.8f}, "
+                    f"increase notional (BTC usually needs ≥120 USDT)"
+                )
+
             perp_result = self._place_order(
                 perp_client,
                 symbol=symbol,
                 side="SELL",
-                quantity=spot_qty,
+                quantity=perp_qty_req,
                 position_side="SHORT",
                 client_order_id=f"ha{self.strategy_id}p",
                 for_entry=True,
             )
             perp_qty = float(perp_result.filled or 0.0)
             if perp_qty <= 0:
-                raise LiveTradingError("Perp leg filled zero quantity")
+                raise LiveTradingError(
+                    f"Perp leg filled zero quantity (requested={perp_qty_req:g}); "
+                    "check futures margin / position mode"
+                )
 
         except Exception as e:
             self._compensate_partial(spot_client, perp_client, symbol, spot_result, perp_result)
             err = str(e)
-            state.status = "error"
+            state.status = "flat"
             state.last_error = err
             self.state_repo.upsert(state)
             append_strategy_log(self.strategy_id, "error", f"Hedge enter failed: {err}")

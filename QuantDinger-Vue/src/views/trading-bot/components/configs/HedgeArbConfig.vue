@@ -19,12 +19,13 @@
     <a-form-model-item :label="$t('trading-bot.hedgeArb.notionalUsdt')" prop="notionalUsdt">
       <a-input-number
         v-model="form.notionalUsdt"
-        :min="10"
+        :min="50"
         :step="50"
         style="width: 100%"
         :placeholder="$t('trading-bot.hedgeArb.notionalUsdtPh')"
         @change="emit"
       />
+      <div class="field-hint">{{ $t('trading-bot.hedgeArb.notionalUsdtHint') }}</div>
     </a-form-model-item>
     <a-form-model-item :label="$t('trading-bot.hedgeArb.entryFundingRate')" prop="entryFundingRate">
       <a-input-number

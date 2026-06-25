@@ -230,6 +230,7 @@ const locale = {
   'trading-bot.hedgeArb.configHint': '策略在 Binance 同时持有现货多头与 USDT-M 永续空头；正 funding 时自动开仓收取费率。',
   'trading-bot.hedgeArb.notionalUsdt': '开仓名义 (USDT)',
   'trading-bot.hedgeArb.notionalUsdtPh': '每次开仓现货买入金额',
+  'trading-bot.hedgeArb.notionalUsdtHint': 'BTC 永续最小手数 0.001，建议名义 ≥120 USDT；现货账户需有足够 USDT',
   'trading-bot.hedgeArb.notionalUsdtReq': '请填写开仓名义 USDT',
   'trading-bot.hedgeArb.entryFundingRate': '入场 funding 阈值',
   'trading-bot.hedgeArb.entryFundingRateHint': '当前 funding ≥ 此值（每 8h 费率，%）时开仓',
