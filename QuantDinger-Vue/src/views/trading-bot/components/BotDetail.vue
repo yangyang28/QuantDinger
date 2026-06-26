@@ -288,6 +288,17 @@
             </div>
             <div class="hedge-stat__value">{{ formatBasisPct(hedgeArbStatus.notional_drift_pct) }}</div>
           </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.qtyDriftPct') }}</span>
+            </div>
+            <div class="hedge-stat__value">
+              {{ formatBasisPct(hedgeArbStatus.qty_drift_pct) }}
+              <a-tag v-if="hedgeArbStatus.qty_matched" color="green" size="small" style="margin-left: 6px;">
+                {{ $t('trading-bot.hedgeArb.qtyMatched') }}
+              </a-tag>
+            </div>
+          </div>
         </div>
         <div v-if="hedgeArbStatus.entered_at" class="hedge-arb-entered">
           {{ $t('trading-bot.hedgeArb.enteredAt') }}: {{ hedgeArbStatus.entered_at }}

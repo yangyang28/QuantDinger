@@ -99,7 +99,8 @@ def run_hedge_arb_tick(
 
     status = orch.get_status()
     drift = float(status.get("notional_drift_pct") or 0.0)
-    if drift >= cfg.rebalance_threshold_pct:
+    qty_drift = float(status.get("qty_drift_pct") or 0.0)
+    if drift >= cfg.rebalance_threshold_pct or qty_drift >= cfg.rebalance_threshold_pct:
         try:
             orch.rebalance()
         except Exception as e:
@@ -108,5 +109,6 @@ def run_hedge_arb_tick(
         append_strategy_log(
             strategy_id,
             "debug",
-            f"Hedge hold funding={signals.funding_rate:.6f} basis={signals.basis_pct:.4%} drift={drift:.2%}",
+            f"Hedge hold funding={signals.funding_rate:.6f} basis={signals.basis_pct:.4%} "
+            f"notional_drift={drift:.2%} qty_drift={qty_drift:.2%}",
         )

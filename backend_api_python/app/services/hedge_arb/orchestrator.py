@@ -5,13 +5,14 @@ from typing import Any, Dict, Optional
 
 from app.services.exchange_execution import resolve_exchange_config
 from app.services.hedge_arb.config import HedgeArbConfig, parse_hedge_arb_config
-from app.services.hedge_arb.positions import read_live_legs
+from app.services.hedge_arb.positions import read_live_legs, spot_base_balance
 from app.services.hedge_arb.signals import HedgeArbSignals, collect_signals
 from app.services.hedge_arb.sizing import (
-    normalize_market_base_qty,
+    align_dual_leg_qty,
+    base_qty_gap,
     notional_drift_pct,
     plan_entry_base_qty,
-    rebalance_delta_base,
+    qty_drift_metrics,
     validate_spot_buy_balance,
 )
 from app.services.hedge_arb.state import HedgeArbState, HedgeArbStateRepository, utc_now_iso
@@ -91,6 +92,84 @@ class HedgeArbOrchestrator:
             kwargs["reduce_only"] = reduce_only
         return method(**kwargs)
 
+    def _sync_matched_base_qty(
+        self,
+        spot_client: BinanceSpotClient,
+        perp_client: BinanceFuturesClient,
+        symbol: str,
+        *,
+        context: str = "sync",
+    ) -> tuple[float, float]:
+        """
+        Align spot long and perp short to the same base quantity.
+        Prefer adjusting the perp leg; trim excess spot when needed.
+        """
+        spot_qty, perp_qty = read_live_legs(spot_client, perp_client, symbol)
+        gap = base_qty_gap(spot_qty, perp_qty)
+        if abs(gap) <= 1e-12:
+            return spot_qty, perp_qty
+
+        if gap > 0:
+            add_qty = align_dual_leg_qty(
+                symbol=symbol,
+                quantity=gap,
+                spot_client=spot_client,
+                perp_client=perp_client,
+            )
+            if add_qty > 0:
+                self._place_order(
+                    perp_client,
+                    symbol=symbol,
+                    side="SELL",
+                    quantity=add_qty,
+                    position_side="SHORT",
+                    client_order_id=f"ha{self.strategy_id}{context[:2]}p",
+                )
+        else:
+            reduce_qty = align_dual_leg_qty(
+                symbol=symbol,
+                quantity=abs(gap),
+                spot_client=spot_client,
+                perp_client=perp_client,
+            )
+            if reduce_qty > 0:
+                self._place_order(
+                    perp_client,
+                    symbol=symbol,
+                    side="BUY",
+                    quantity=reduce_qty,
+                    reduce_only=True,
+                    position_side="SHORT",
+                    client_order_id=f"ha{self.strategy_id}{context[:2]}p",
+                )
+
+        spot_qty, perp_qty = read_live_legs(spot_client, perp_client, symbol)
+        gap = base_qty_gap(spot_qty, perp_qty)
+        if gap > 1e-12:
+            trim = align_dual_leg_qty(
+                symbol=symbol,
+                quantity=gap,
+                spot_client=spot_client,
+                perp_client=perp_client,
+            )
+            if trim > 0:
+                free_base = spot_base_balance(spot_client, symbol)
+                sell_qty = align_dual_leg_qty(
+                    symbol=symbol,
+                    quantity=min(trim, free_base),
+                    spot_client=spot_client,
+                    perp_client=perp_client,
+                )
+                if sell_qty > 0:
+                    spot_client.place_market_order(
+                        symbol=symbol,
+                        side="SELL",
+                        quantity=sell_qty,
+                        client_order_id=f"ha{self.strategy_id}{context[:2]}t",
+                    )
+
+        return read_live_legs(spot_client, perp_client, symbol)
+
     def get_signals(self) -> HedgeArbSignals:
         return collect_signals(self._symbol(), testnet=self._testnet)
 
@@ -111,6 +190,7 @@ class HedgeArbOrchestrator:
         drift = notional_drift_pct(
             spot_qty, signals.spot_price, perp_qty, signals.perp_mark_price,
         )
+        gap, qty_drift, qty_matched = qty_drift_metrics(spot_qty, perp_qty)
         return {
             "strategy_id": self.strategy_id,
             "status": state.status,
@@ -124,6 +204,9 @@ class HedgeArbOrchestrator:
                 "basis_pct": signals.basis_pct,
             },
             "notional_drift_pct": drift,
+            "base_qty_gap": gap,
+            "qty_drift_pct": qty_drift,
+            "qty_matched": qty_matched,
             "entry_basis_pct": state.entry_basis_pct,
             "entry_funding_rate": state.entry_funding_rate,
             "cumulative_funding_est": state.cumulative_funding_est,
@@ -176,33 +259,48 @@ class HedgeArbOrchestrator:
                 client_order_id=f"ha{self.strategy_id}s",
                 for_entry=True,
             )
-            spot_qty = float(spot_result.filled or 0.0)
-            if spot_qty <= 0:
+            spot_filled = float(spot_result.filled or 0.0)
+            if spot_filled <= 0:
                 raise LiveTradingError("Spot leg filled zero quantity")
 
-            perp_qty_req = normalize_market_base_qty(
-                perp_client, symbol=symbol, quantity=spot_qty,
+            hedge_qty = align_dual_leg_qty(
+                symbol=symbol,
+                quantity=min(spot_filled, base_qty),
+                spot_client=spot_client,
+                perp_client=perp_client,
             )
-            if perp_qty_req <= 0:
+            if hedge_qty <= 0:
                 raise LiveTradingError(
-                    f"Perp qty below min lot after spot fill: spot={spot_qty:.8f}, "
-                    f"increase notional (BTC usually needs ≥120 USDT)"
+                    f"Aligned hedge qty is zero after spot fill ({spot_filled:g}); "
+                    f"increase notional"
                 )
 
             perp_result = self._place_order(
                 perp_client,
                 symbol=symbol,
                 side="SELL",
-                quantity=perp_qty_req,
+                quantity=hedge_qty,
                 position_side="SHORT",
                 client_order_id=f"ha{self.strategy_id}p",
                 for_entry=True,
             )
-            perp_qty = float(perp_result.filled or 0.0)
-            if perp_qty <= 0:
+            perp_filled = float(perp_result.filled or 0.0)
+            if perp_filled <= 0:
                 raise LiveTradingError(
-                    f"Perp leg filled zero quantity (requested={perp_qty_req:g}); "
+                    f"Perp leg filled zero quantity (requested={hedge_qty:g}); "
                     "check futures margin / position mode"
+                )
+
+            spot_qty, perp_qty = self._sync_matched_base_qty(
+                spot_client, perp_client, symbol, context="en",
+            )
+            if spot_qty <= 0 or perp_qty <= 0:
+                raise LiveTradingError("Leg sync failed after entry")
+            if abs(base_qty_gap(spot_qty, perp_qty)) > 1e-8:
+                append_strategy_log(
+                    self.strategy_id,
+                    "warning",
+                    f"Hedge qty mismatch after sync: spot={spot_qty:.8f} perp={perp_qty:.8f}",
                 )
 
         except Exception as e:
@@ -230,6 +328,7 @@ class HedgeArbOrchestrator:
             self.strategy_id,
             "info",
             f"Hedge entered {symbol}: spot={spot_qty:.6f} perp_short={perp_qty:.6f} "
+            f"(matched qty, planned={base_qty:.6f}) "
             f"funding={signals.funding_rate:.6f} basis={signals.basis_pct:.4%}",
         )
         return {"ok": True, "spot_qty": spot_qty, "perp_qty": perp_qty, "status": self.get_status()}
@@ -239,7 +338,14 @@ class HedgeArbOrchestrator:
         state = self.state_repo.ensure_row(self.strategy_id, symbol)
         spot_client = self._spot_client()
         perp_client = self._perp_client()
-        spot_qty, perp_qty = read_live_legs(spot_client, perp_client, symbol)
+
+        try:
+            spot_qty, perp_qty = self._sync_matched_base_qty(
+                spot_client, perp_client, symbol, context="ex",
+            )
+        except Exception as e:
+            logger.warning("hedge_arb exit sync sid=%s: %s", self.strategy_id, e)
+            spot_qty, perp_qty = read_live_legs(spot_client, perp_client, symbol)
 
         if spot_qty <= 0 and perp_qty <= 0:
             flat = HedgeArbState(
@@ -254,12 +360,13 @@ class HedgeArbOrchestrator:
             return {"ok": True, "reason": "already_flat", "status": self.get_status()}
 
         errors = []
-        if perp_qty > 0:
+        close_qty = min(spot_qty, perp_qty) if spot_qty > 0 and perp_qty > 0 else max(spot_qty, perp_qty)
+        if perp_qty > 0 and close_qty > 0:
             try:
                 perp_client.place_market_order(
                     symbol=symbol,
                     side="BUY",
-                    quantity=perp_qty,
+                    quantity=close_qty,
                     reduce_only=True,
                     position_side="SHORT",
                     client_order_id=f"ha{self.strategy_id}px",
@@ -267,12 +374,12 @@ class HedgeArbOrchestrator:
             except Exception as e:
                 errors.append(f"perp_close: {e}")
 
-        if spot_qty > 0:
+        if spot_qty > 0 and close_qty > 0:
             try:
                 spot_client.place_market_order(
                     symbol=symbol,
                     side="SELL",
-                    quantity=spot_qty,
+                    quantity=close_qty,
                     client_order_id=f"ha{self.strategy_id}sx",
                 )
             except Exception as e:
@@ -309,29 +416,57 @@ class HedgeArbOrchestrator:
         drift = notional_drift_pct(
             spot_qty, signals.spot_price, perp_qty, signals.perp_mark_price,
         )
-        if drift < self.config.rebalance_threshold_pct:
+        _, qty_drift_pct, _ = qty_drift_metrics(spot_qty, perp_qty)
+        if (
+            drift < self.config.rebalance_threshold_pct
+            and qty_drift_pct < self.config.rebalance_threshold_pct
+        ):
             return {"ok": True, "reason": "within_threshold", "drift_pct": drift, "status": self.get_status()}
 
-        delta_base = rebalance_delta_base(
-            spot_qty, perp_qty, signals.spot_price, signals.perp_mark_price,
-        )
+        delta_base = base_qty_gap(spot_qty, perp_qty)
         if abs(delta_base) <= 0:
-            return {"ok": True, "reason": "no_delta", "status": self.get_status()}
+            spot_qty, perp_qty = self._sync_matched_base_qty(
+                spot_client, perp_client, symbol, context="rb",
+            )
+            state.spot_qty = spot_qty
+            state.perp_qty = perp_qty
+            state.last_rebalance_at = utc_now_iso()
+            state.last_error = ""
+            self.state_repo.upsert(state)
+            return {"ok": True, "reason": "qty_sync", "status": self.get_status()}
 
         try:
             if delta_base > 0:
-                perp_client.place_market_order(
+                add_qty = align_dual_leg_qty(
+                    symbol=symbol,
+                    quantity=abs(delta_base),
+                    spot_client=spot_client,
+                    perp_client=perp_client,
+                )
+                if add_qty <= 0:
+                    return {"ok": False, "reason": "qty_below_step", "status": self.get_status()}
+                self._place_order(
+                    perp_client,
                     symbol=symbol,
                     side="SELL",
-                    quantity=abs(delta_base),
+                    quantity=add_qty,
                     position_side="SHORT",
                     client_order_id=f"ha{self.strategy_id}rb",
                 )
             else:
-                perp_client.place_market_order(
+                reduce_qty = align_dual_leg_qty(
+                    symbol=symbol,
+                    quantity=abs(delta_base),
+                    spot_client=spot_client,
+                    perp_client=perp_client,
+                )
+                if reduce_qty <= 0:
+                    return {"ok": False, "reason": "qty_below_step", "status": self.get_status()}
+                self._place_order(
+                    perp_client,
                     symbol=symbol,
                     side="BUY",
-                    quantity=abs(delta_base),
+                    quantity=reduce_qty,
                     reduce_only=True,
                     position_side="SHORT",
                     client_order_id=f"ha{self.strategy_id}rb",
@@ -341,9 +476,11 @@ class HedgeArbOrchestrator:
             self.state_repo.upsert(state)
             raise LiveTradingError(str(e)) from e
 
-        live_spot, live_perp = read_live_legs(spot_client, perp_client, symbol)
-        state.spot_qty = live_spot
-        state.perp_qty = live_perp
+        spot_qty, perp_qty = self._sync_matched_base_qty(
+            spot_client, perp_client, symbol, context="rb",
+        )
+        state.spot_qty = spot_qty
+        state.perp_qty = perp_qty
         state.last_rebalance_at = utc_now_iso()
         state.last_error = ""
         self.state_repo.upsert(state)

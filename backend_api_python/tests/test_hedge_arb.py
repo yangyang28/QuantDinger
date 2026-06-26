@@ -18,8 +18,10 @@ from app.services.hedge_arb.signals import (
 )
 from app.services.hedge_arb.runner import _enter_skip_reason
 from app.services.hedge_arb.sizing import (
+    align_dual_leg_qty,
     notional_drift_pct,
     plan_entry_base_qty,
+    qty_drift_metrics,
     rebalance_delta_base,
     target_base_qty,
 )
@@ -91,6 +93,7 @@ class TestSizing:
         spot = MagicMock()
         perp = MagicMock()
         perp._normalize_quantity.return_value = (Decimal("0"), 3)
+        spot._normalize_quantity.return_value = (Decimal("0"), 3)
         perp.get_symbol_filters.return_value = {
             "LOT_SIZE": {"minQty": "0.001", "stepSize": "0.001"},
         }
@@ -106,8 +109,30 @@ class TestSizing:
                 spot_client=spot,
             )
 
+    def test_align_dual_leg_uses_tighter_perp_step(self):
+        spot = MagicMock()
+        perp = MagicMock()
+        spot._normalize_quantity.return_value = (Decimal("0.00123"), 5)
+        perp._normalize_quantity.return_value = (Decimal("0.001"), 3)
+        aligned = align_dual_leg_qty(
+            symbol="BTC/USDT",
+            quantity=0.00123,
+            spot_client=spot,
+            perp_client=perp,
+        )
+        assert aligned == pytest.approx(0.001)
 
-class TestOrchestratorMocked:
+    def test_qty_drift_metrics_matched(self):
+        gap, drift, matched = qty_drift_metrics(0.002, 0.002)
+        assert gap == pytest.approx(0.0)
+        assert drift == pytest.approx(0.0)
+        assert matched is True
+
+    def test_qty_drift_metrics_unmatched(self):
+        gap, drift, matched = qty_drift_metrics(0.00102, 0.001)
+        assert gap == pytest.approx(0.00002)
+        assert drift == pytest.approx(0.02)
+        assert matched is False
     @staticmethod
     def _mock_clients(*, spot_fill=0.002, perp_fill=0.002):
         spot = MagicMock()
@@ -154,8 +179,11 @@ class TestOrchestratorMocked:
             gs.return_value = HedgeArbSignals("BTC/USDT", 0.0002, 50000, 50010, 0.0002)
             result = orch.enter()
         assert result["ok"] is True
-        assert spot.place_best_price_order.called
-        assert perp.place_best_price_order.called
+        assert result["spot_qty"] == pytest.approx(0.002)
+        assert result["perp_qty"] == pytest.approx(0.002)
+        spot_kwargs = spot.place_best_price_order.call_args.kwargs
+        perp_kwargs = perp.place_best_price_order.call_args.kwargs
+        assert spot_kwargs["quantity"] == perp_kwargs["quantity"]
 
     @patch("app.services.hedge_arb.orchestrator.create_client")
     @patch("app.services.hedge_arb.orchestrator.HedgeArbStateRepository")
@@ -176,6 +204,49 @@ class TestOrchestratorMocked:
                 orch.enter()
         assert spot.place_best_price_order.call_count >= 1
         assert spot.place_market_order.called
+
+    @patch("app.services.hedge_arb.orchestrator.create_client")
+    @patch("app.services.hedge_arb.orchestrator.read_live_legs")
+    @patch("app.services.hedge_arb.orchestrator.HedgeArbStateRepository")
+    def test_get_status_qty_fields(self, repo_cls, read_legs, create_client):
+        repo = repo_cls.return_value
+        repo.ensure_row.return_value = MagicMock(
+            status="holding", spot_qty=0.001, perp_qty=0.001, last_error="",
+            entry_basis_pct=0, entry_funding_rate=0, cumulative_funding_est=0,
+            entered_at="", last_rebalance_at="",
+        )
+        spot, perp = self._mock_clients()
+        create_client.side_effect = [spot, perp]
+        read_legs.return_value = (0.00102, 0.001)
+
+        orch = self._orch()
+        with patch.object(orch, "get_signals") as gs:
+            gs.return_value = HedgeArbSignals("BTC/USDT", 0.0001, 50000, 50010, 0.0001)
+            status = orch.get_status()
+
+        assert status["base_qty_gap"] == pytest.approx(0.00002)
+        assert status["qty_drift_pct"] == pytest.approx(0.02)
+        assert status["qty_matched"] is False
+
+    @patch("app.services.hedge_arb.orchestrator.create_client")
+    @patch("app.services.hedge_arb.orchestrator.read_live_legs")
+    @patch("app.services.hedge_arb.orchestrator.HedgeArbStateRepository")
+    def test_sync_trims_excess_spot(self, repo_cls, read_legs, create_client):
+        spot, perp = self._mock_clients(spot_fill=0.002, perp_fill=0.001)
+        create_client.side_effect = [spot, perp]
+        read_legs.side_effect = [
+            (0.002, 0.001),
+            (0.002, 0.001),
+            (0.001, 0.001),
+        ]
+
+        orch = self._orch()
+        out_spot, out_perp = orch._sync_matched_base_qty(
+            spot, perp, "BTC/USDT", context="ts",
+        )
+        assert out_spot == pytest.approx(0.001)
+        assert out_perp == pytest.approx(0.001)
+        assert perp.place_best_price_order.called or perp.place_market_order.called
 
 
 class TestBacktest:

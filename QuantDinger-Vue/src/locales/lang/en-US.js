@@ -242,6 +242,8 @@ const locale = {
   'trading-bot.hedgeArb.spotQty': 'Spot qty',
   'trading-bot.hedgeArb.perpQty': 'Perp short',
   'trading-bot.hedgeArb.driftPct': 'Notional drift',
+  'trading-bot.hedgeArb.qtyDriftPct': 'Qty drift',
+  'trading-bot.hedgeArb.qtyMatched': 'Matched',
   'trading-bot.hedgeArb.enteredAt': 'Entered at',
   'trading-bot.hedgeArb.actionEnter': 'Enter hedge',
   'trading-bot.hedgeArb.actionExit': 'Exit hedge',

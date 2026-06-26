@@ -257,6 +257,8 @@ const locale = {
   'trading-bot.hedgeArb.spotQty': '现货数量',
   'trading-bot.hedgeArb.perpQty': '永续空头',
   'trading-bot.hedgeArb.driftPct': '名义偏差',
+  'trading-bot.hedgeArb.qtyDriftPct': '数量偏差',
+  'trading-bot.hedgeArb.qtyMatched': '已对齐',
   'trading-bot.hedgeArb.enteredAt': '开仓时间',
   'trading-bot.hedgeArb.actionEnter': '手动开仓',
   'trading-bot.hedgeArb.actionExit': '手动平仓',
