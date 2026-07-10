@@ -90,11 +90,11 @@
               </router-link>
             </div>
             <div
-              v-if="isHedgeArbBot && currentExchangeId && currentExchangeId !== 'binance'"
+              v-if="isHedgeArbBot && currentExchangeId && !hedgeArbExchangeSupported"
               class="form-hint"
               style="margin-top: 6px; color: #ff9800;"
             >
-              <a-icon type="warning" /> {{ $t('trading-bot.hedgeArb.binanceRequired') }}
+              <a-icon type="warning" /> {{ $t('trading-bot.hedgeArb.exchangeNotSupported') }}
             </div>
           </a-form-model-item>
 
@@ -529,6 +529,20 @@ const BOT_TYPE_MAP = {
   }
 }
 
+/** Exchanges supported by backend hedge_arb orchestrator (spot + swap). */
+const HEDGE_ARB_EXCHANGE_IDS = new Set([
+  'binance', 'okx', 'htx', 'huobi', 'bybit', 'bitget', 'gate', 'kraken'
+])
+
+function normalizeHedgeArbExchangeId (exchangeId) {
+  const ex = String(exchangeId || '').trim().toLowerCase()
+  return ex === 'huobi' ? 'htx' : ex
+}
+
+function isHedgeArbExchangeSupported (exchangeId) {
+  return HEDGE_ARB_EXCHANGE_IDS.has(normalizeHedgeArbExchangeId(exchangeId))
+}
+
 // All knowledge about which broker can serve which market lives in the
 // backend `app/services/broker_market_policy.py` and is fetched at boot
 // into the `policy` Vuex store. We read it via the `brokerMarketPolicy`
@@ -787,6 +801,10 @@ export default {
     isHedgeArbBot () {
       return this.botType === 'hedge_arb'
     },
+    hedgeArbExchangeSupported () {
+      if (!this.isHedgeArbBot) return true
+      return isHedgeArbExchangeSupported(this.currentExchangeId)
+    },
     isZhLocale () {
       return String(this.$i18n?.locale || '').toLowerCase().startsWith('zh')
     },
@@ -1015,6 +1033,8 @@ export default {
         dipBuyEnabled: this.$t('trading-bot.dca.dipBuy'),
         dipThreshold: this.$t('trading-bot.dca.dipThreshold'),
         notionalUsdt: this.$t('trading-bot.hedgeArb.notionalUsdt'),
+        spotQty: this.$t('trading-bot.hedgeArb.spotQty'),
+        perpQty: this.$t('trading-bot.hedgeArb.perpQty'),
         entryFundingRate: this.$t('trading-bot.hedgeArb.entryFundingRate'),
         exitFundingRate: this.$t('trading-bot.hedgeArb.exitFundingRate'),
         maxBasisPct: this.$t('trading-bot.hedgeArb.maxBasisPct'),
@@ -1173,7 +1193,9 @@ export default {
         this.baseForm.marketType = 'swap'
         this.baseForm.leverage = 1
         this.strategyParams = {
-          notionalUsdt: tc.notional_usdt ?? tc.bot_params?.notionalUsdt ?? 1000,
+          spotQty: tc.spot_qty ?? tc.bot_params?.spotQty ?? 0.001,
+          perpQty: tc.perp_qty ?? tc.bot_params?.perpQty ?? 0.001,
+          notionalUsdt: tc.notional_usdt ?? tc.bot_params?.notionalUsdt ?? 0,
           entryFundingRate: ratioOrPercentToUiPercent(tc.entry_funding_rate ?? tc.bot_params?.entryFundingRate ?? 0.0001, 4),
           exitFundingRate: ratioOrPercentToUiPercent(tc.exit_funding_rate ?? tc.bot_params?.exitFundingRate ?? 0, 4),
           maxBasisPct: ratioOrPercentToUiPercent(tc.max_basis_pct ?? tc.bot_params?.maxBasisPct ?? 0.005, 2),
@@ -1422,8 +1444,8 @@ export default {
         } catch {
           return
         }
-        if (this.isHedgeArbBot && this.currentExchangeId !== 'binance') {
-          this.$message.warning(this.$t('trading-bot.hedgeArb.binanceRequired'))
+        if (this.isHedgeArbBot && !this.hedgeArbExchangeSupported) {
+          this.$message.warning(this.$t('trading-bot.hedgeArb.exchangeNotSupported'))
           return
         }
       }
@@ -1500,15 +1522,17 @@ export default {
           this.$t('trading-bot.wizard.botTypeNotSupportedOnMarket', { market: this.currentMarketLabel })
         )
       }
-      if (this.isHedgeArbBot && exId !== 'binance') {
-        throw new Error(this.$t('trading-bot.hedgeArb.binanceRequired'))
+      if (this.isHedgeArbBot && !isHedgeArbExchangeSupported(exId)) {
+        throw new Error(this.$t('trading-bot.hedgeArb.exchangeNotSupported'))
       }
 
       const hedgeArbExtras = {}
       if (this.isHedgeArbBot) {
         const p = strategyParams
         const sym = this.baseForm.symbol
-        hedgeArbExtras.notional_usdt = p.notionalUsdt
+        hedgeArbExtras.spot_qty = p.spotQty
+        hedgeArbExtras.perp_qty = p.perpQty
+        hedgeArbExtras.notional_usdt = p.notionalUsdt || 0
         hedgeArbExtras.entry_funding_rate = p.entryFundingRate / 100
         hedgeArbExtras.exit_funding_rate = p.exitFundingRate / 100
         hedgeArbExtras.max_basis_pct = p.maxBasisPct / 100
@@ -1516,14 +1540,14 @@ export default {
         hedgeArbExtras.tick_interval_sec = p.tickIntervalSec
         hedgeArbExtras.max_hold_hours = p.maxHoldHours
         hedgeArbExtras.hedge_legs = [
-          { market_type: 'spot', symbol: sym, role: 'long' },
-          { market_type: 'swap', symbol: sym, role: 'short' }
+          { market_type: 'spot', symbol: sym, role: 'long', qty: p.spotQty },
+          { market_type: 'swap', symbol: sym, role: 'short', qty: p.perpQty }
         ]
-        hedgeArbExtras.entry_order_mode = 'best'
-        hedgeArbExtras.order_mode = 'best'
+        hedgeArbExtras.entry_order_mode = 'market'
+        hedgeArbExtras.order_mode = 'market'
       }
 
-      const hedgeArbOrderMode = this.isHedgeArbBot ? 'best' : null
+      const hedgeArbOrderMode = this.isHedgeArbBot ? 'market' : null
 
       return {
         strategy_name: this.baseForm.botName,

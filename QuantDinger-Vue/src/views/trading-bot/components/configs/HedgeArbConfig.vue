@@ -12,20 +12,29 @@
       style="margin-bottom: 16px;"
       :message="$t('trading-bot.hedgeArb.configHint')"
     />
-    <a-form-model-item :label="$t('trading-bot.grid.orderType')">
-      <a-tag color="geekblue">{{ $t('trading-bot.grid.bestPriceOrder') }}</a-tag>
-      <div class="field-hint">{{ $t('trading-bot.hedgeArb.bestPriceOrderHint') }}</div>
-    </a-form-model-item>
-    <a-form-model-item :label="$t('trading-bot.hedgeArb.notionalUsdt')" prop="notionalUsdt">
+    <a-form-model-item :label="$t('trading-bot.hedgeArb.spotQty')" prop="spotQty">
       <a-input-number
-        v-model="form.notionalUsdt"
-        :min="50"
-        :step="50"
+        v-model="form.spotQty"
+        :min="0"
+        :step="0.001"
+        :precision="6"
         style="width: 100%"
-        :placeholder="$t('trading-bot.hedgeArb.notionalUsdtPh')"
+        :placeholder="$t('trading-bot.hedgeArb.spotQtyPh')"
         @change="emit"
       />
-      <div class="field-hint">{{ $t('trading-bot.hedgeArb.notionalUsdtHint') }}</div>
+      <div class="field-hint">{{ $t('trading-bot.hedgeArb.spotQtyHint') }}</div>
+    </a-form-model-item>
+    <a-form-model-item :label="$t('trading-bot.hedgeArb.perpQty')" prop="perpQty">
+      <a-input-number
+        v-model="form.perpQty"
+        :min="0"
+        :step="0.001"
+        :precision="6"
+        style="width: 100%"
+        :placeholder="$t('trading-bot.hedgeArb.perpQtyPh')"
+        @change="emit"
+      />
+      <div class="field-hint">{{ $t('trading-bot.hedgeArb.perpQtyHint') }}</div>
     </a-form-model-item>
     <a-form-model-item :label="$t('trading-bot.hedgeArb.entryFundingRate')" prop="entryFundingRate">
       <a-input-number
@@ -116,7 +125,9 @@ export default {
   data () {
     return {
       form: {
-        notionalUsdt: this.value.notionalUsdt != null ? this.value.notionalUsdt : 1000,
+        spotQty: this.value.spotQty != null ? this.value.spotQty : 0.001,
+        perpQty: this.value.perpQty != null ? this.value.perpQty : 0.001,
+        notionalUsdt: this.value.notionalUsdt != null ? this.value.notionalUsdt : 0,
         entryFundingRate: this.value.entryFundingRate != null ? this.value.entryFundingRate : 0.01,
         exitFundingRate: this.value.exitFundingRate != null ? this.value.exitFundingRate : 0,
         maxBasisPct: this.value.maxBasisPct != null ? this.value.maxBasisPct : 0.5,
@@ -125,17 +136,10 @@ export default {
         maxHoldHours: this.value.maxHoldHours != null ? this.value.maxHoldHours : 0
       },
       rules: {
-        notionalUsdt: [{ required: true, message: this.$t('trading-bot.hedgeArb.notionalUsdtReq'), trigger: 'change' }],
+        spotQty: [{ required: true, type: 'number', min: 0.000001, message: this.$t('trading-bot.hedgeArb.spotQtyReq'), trigger: 'change' }],
+        perpQty: [{ required: true, type: 'number', min: 0.000001, message: this.$t('trading-bot.hedgeArb.perpQtyReq'), trigger: 'change' }],
         entryFundingRate: [{ required: true, message: this.$t('trading-bot.hedgeArb.entryFundingRateReq'), trigger: 'change' }],
         tickIntervalSec: [{ required: true, message: this.$t('trading-bot.hedgeArb.tickIntervalSecReq'), trigger: 'change' }]
-      }
-    }
-  },
-  watch: {
-    initialCapital (val) {
-      if (val && val > 0 && (!this.form.notionalUsdt || this.form.notionalUsdt <= 0)) {
-        this.form.notionalUsdt = val
-        this.emit()
       }
     }
   },
