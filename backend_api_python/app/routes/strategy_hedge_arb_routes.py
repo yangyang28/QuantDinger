@@ -80,8 +80,14 @@ def hedge_arb_enter():
         if err_resp is not None:
             return err_resp, err_code
         notional = payload.get("notional_usdt")
+        spot_qty = payload.get("spot_qty")
+        perp_qty = payload.get("perp_qty")
         orch = _orchestrator_for_strategy(st)
-        result = orch.enter(notional_usdt=notional)
+        result = orch.enter(
+            notional_usdt=notional,
+            spot_qty=spot_qty,
+            perp_qty=perp_qty,
+        )
         return jsonify({"code": 1, "msg": "success", "data": result})
     except LiveTradingError as e:
         return jsonify({"code": 0, "msg": str(e), "data": None}), 400

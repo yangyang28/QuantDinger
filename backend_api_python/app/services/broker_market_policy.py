@@ -76,7 +76,7 @@ BOT_TYPE_MARKETS: Dict[str, Set[str]] = {
     "martingale": {"Crypto"},
     "dca":        {"Crypto", "USStock", "Forex"},
     "trend":      {"Crypto", "USStock", "Forex"},
-    # Spot + perpetual delta-neutral / funding-rate hedge (Binance spot+swap).
+    # Spot + perpetual delta-neutral / funding-rate hedge (multi-exchange spot+swap).
     "hedge_arb":  {"Crypto"},
 }
 

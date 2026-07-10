@@ -968,7 +968,9 @@ class StrategyService:
             }.get(entry_mode, 'trading-bot.grid.bestPriceOrder')
             display['strategy_params'] = [
                 self._display_item('entryOrderMode', 'trading-bot.grid.orderType', entry_mode, 'enum', entry_mode_key),
-                self._display_item('notionalUsdt', 'trading-bot.hedgeArb.notionalUsdt', self._to_float(tc.get('notional_usdt'), 1000.0), 'usdt'),
+                self._display_item('spotQty', 'trading-bot.hedgeArb.spotQty', self._to_float(tc.get('spot_qty'), 0.0), 'number'),
+                self._display_item('perpQty', 'trading-bot.hedgeArb.perpQty', self._to_float(tc.get('perp_qty'), 0.0), 'number'),
+                self._display_item('notionalUsdt', 'trading-bot.hedgeArb.notionalUsdt', self._to_float(tc.get('notional_usdt'), 0.0), 'usdt'),
                 self._display_item('entryFundingRate', 'trading-bot.hedgeArb.entryFundingRate', self._to_float(tc.get('entry_funding_rate'), 0.0001) * 100, 'percent'),
                 self._display_item('exitFundingRate', 'trading-bot.hedgeArb.exitFundingRate', self._to_float(tc.get('exit_funding_rate'), 0.0) * 100, 'percent'),
                 self._display_item('maxBasisPct', 'trading-bot.hedgeArb.maxBasisPct', self._to_float(tc.get('max_basis_pct'), 0.005) * 100, 'percent'),

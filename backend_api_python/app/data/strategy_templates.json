@@ -180,11 +180,13 @@
     "markets": ["Crypto"],
     "default_params": {
       "symbol": "BTC/USDT",
-      "notional_usdt": 1000,
+      "spot_qty": 0.001,
+      "perp_qty": 0.001,
+      "notional_usdt": 0,
       "entry_funding_rate": 0.0001,
       "exit_funding_rate": 0.0,
-      "entry_order_mode": "best",
-      "order_mode": "best",
+      "entry_order_mode": "market",
+      "order_mode": "market",
       "rebalance_threshold_pct": 0.02,
       "tick_interval_sec": 300,
       "timeframe": "1H"

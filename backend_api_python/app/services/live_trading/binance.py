@@ -714,6 +714,51 @@ class BinanceFuturesClient(BaseRestClient):
         logger.warning("Binance could not obtain fee for order=%s symbol=%s", oid, symbol)
         return 0.0, ""
 
+    @staticmethod
+    def _market_fallback_client_id(client_order_id: Optional[str]) -> Optional[str]:
+        """Use a distinct client id when retrying as MARKET after an IOC attempt."""
+        base = str(client_order_id or "").strip()
+        if not base:
+            return None
+        suffix = "m"
+        max_len = 36
+        if len(base) + len(suffix) <= max_len:
+            return f"{base}{suffix}"
+        return base[: max_len - len(suffix)] + suffix
+
+    def _coalesce_order_fill(self, *, symbol: str, result: LiveOrderResult) -> LiveOrderResult:
+        """Poll order detail when the immediate response reports zero fill."""
+        if float(result.filled or 0.0) > 0:
+            return result
+        oid = str(result.exchange_order_id or "").strip()
+        coid = ""
+        raw = result.raw if isinstance(result.raw, dict) else {}
+        if raw:
+            coid = str(raw.get("clientOrderId") or raw.get("origClientOrderId") or "").strip()
+        if not oid and not coid:
+            return result
+        try:
+            info = self.wait_for_fill(
+                symbol=symbol,
+                order_id=oid,
+                client_order_id=coid,
+                max_wait_sec=3.0,
+            )
+        except Exception:
+            return result
+        filled = float(info.get("filled") or 0.0)
+        if filled <= 0:
+            return result
+        avg_price = float(info.get("avg_price") or result.avg_price or 0.0)
+        order = info.get("order") if isinstance(info.get("order"), dict) else raw
+        return LiveOrderResult(
+            exchange_id=result.exchange_id,
+            exchange_order_id=oid or str((order or {}).get("orderId") or ""),
+            filled=filled,
+            avg_price=avg_price,
+            raw=order if isinstance(order, dict) else result.raw,
+        )
+
     def place_market_order(
         self,
         *,
@@ -798,12 +843,15 @@ class BinanceFuturesClient(BaseRestClient):
                         raw = self._signed_request("POST", "/fapi/v1/order", params=params2)
                         # Cache for future calls.
                         self._dual_side_cache = (time.time(), False)
-                        return LiveOrderResult(
-                            exchange_id="binance",
-                            exchange_order_id=str(raw.get("orderId") or raw.get("clientOrderId") or ""),
-                            filled=float(raw.get("executedQty") or 0.0),
-                            avg_price=float(raw.get("avgPrice") or raw.get("price") or 0.0),
-                            raw=raw,
+                        return self._coalesce_order_fill(
+                            symbol=symbol,
+                            result=LiveOrderResult(
+                                exchange_id="binance",
+                                exchange_order_id=str(raw.get("orderId") or raw.get("clientOrderId") or ""),
+                                filled=float(raw.get("executedQty") or 0.0),
+                                avg_price=float(raw.get("avgPrice") or raw.get("price") or 0.0),
+                                raw=raw,
+                            ),
                         )
                     except Exception:
                         pass
@@ -814,12 +862,15 @@ class BinanceFuturesClient(BaseRestClient):
                     try:
                         raw = self._signed_request("POST", "/fapi/v1/order", params=params2)
                         self._dual_side_cache = (time.time(), True)
-                        return LiveOrderResult(
-                            exchange_id="binance",
-                            exchange_order_id=str(raw.get("orderId") or raw.get("clientOrderId") or ""),
-                            filled=float(raw.get("executedQty") or 0.0),
-                            avg_price=float(raw.get("avgPrice") or raw.get("price") or 0.0),
-                            raw=raw,
+                        return self._coalesce_order_fill(
+                            symbol=symbol,
+                            result=LiveOrderResult(
+                                exchange_id="binance",
+                                exchange_order_id=str(raw.get("orderId") or raw.get("clientOrderId") or ""),
+                                filled=float(raw.get("executedQty") or 0.0),
+                                avg_price=float(raw.get("avgPrice") or raw.get("price") or 0.0),
+                                raw=raw,
+                            ),
                         )
                     except Exception:
                         pass
@@ -865,12 +916,15 @@ class BinanceFuturesClient(BaseRestClient):
         filled = float(raw.get("executedQty") or 0.0)
         avg_price = float(raw.get("avgPrice") or raw.get("price") or 0.0)
 
-        return LiveOrderResult(
-            exchange_id="binance",
-            exchange_order_id=exchange_order_id,
-            filled=filled,
-            avg_price=avg_price,
-            raw=raw,
+        return self._coalesce_order_fill(
+            symbol=symbol,
+            result=LiveOrderResult(
+                exchange_id="binance",
+                exchange_order_id=exchange_order_id,
+                filled=filled,
+                avg_price=avg_price,
+                raw=raw,
+            ),
         )
 
     def place_best_price_order(
@@ -923,29 +977,67 @@ class BinanceFuturesClient(BaseRestClient):
         if reduce_only and not (dual_side is True and params.get("positionSide") in ("LONG", "SHORT")):
             params["reduceOnly"] = "true"
 
+        market_coid = self._market_fallback_client_id(client_order_id)
+
+        def _fallback_market() -> LiveOrderResult:
+            return self.place_market_order(
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                reduce_only=reduce_only,
+                position_side=position_side,
+                client_order_id=market_coid,
+            )
+
         try:
             raw = self._signed_request("POST", "/fapi/v1/order", params=params)
         except LiveTradingError as e:
+            if self._is_err_code(e, -4061):
+                params2 = dict(params)
+                if params2.get("positionSide"):
+                    params2.pop("positionSide", None)
+                    try:
+                        raw = self._signed_request("POST", "/fapi/v1/order", params=params2)
+                        self._dual_side_cache = (time.time(), False)
+                        filled = float(raw.get("executedQty") or 0.0)
+                        if filled <= 0:
+                            return _fallback_market()
+                        return LiveOrderResult(
+                            exchange_id="binance",
+                            exchange_order_id=str(raw.get("orderId") or raw.get("clientOrderId") or ""),
+                            filled=filled,
+                            avg_price=float(raw.get("avgPrice") or raw.get("price") or 0.0),
+                            raw=raw,
+                        )
+                    except Exception:
+                        pass
+                else:
+                    params2["positionSide"] = (
+                        pos_norm if pos_norm in ("LONG", "SHORT")
+                        else self._infer_position_side(side=sd, reduce_only=reduce_only)
+                    )
+                    params2.pop("reduceOnly", None)
+                    try:
+                        raw = self._signed_request("POST", "/fapi/v1/order", params=params2)
+                        self._dual_side_cache = (time.time(), True)
+                        filled = float(raw.get("executedQty") or 0.0)
+                        if filled <= 0:
+                            return _fallback_market()
+                        return LiveOrderResult(
+                            exchange_id="binance",
+                            exchange_order_id=str(raw.get("orderId") or raw.get("clientOrderId") or ""),
+                            filled=filled,
+                            avg_price=float(raw.get("avgPrice") or raw.get("price") or 0.0),
+                            raw=raw,
+                        )
+                    except Exception:
+                        pass
             logger.info("Binance best-price order fallback to MARKET sid=%s: %s", sym, e)
-            return self.place_market_order(
-                symbol=symbol,
-                side=side,
-                quantity=quantity,
-                reduce_only=reduce_only,
-                position_side=position_side,
-                client_order_id=client_order_id,
-            )
+            return _fallback_market()
 
         filled = float(raw.get("executedQty") or 0.0)
         if filled <= 0:
-            return self.place_market_order(
-                symbol=symbol,
-                side=side,
-                quantity=quantity,
-                reduce_only=reduce_only,
-                position_side=position_side,
-                client_order_id=client_order_id,
-            )
+            return _fallback_market()
 
         avg_price = float(raw.get("avgPrice") or raw.get("price") or 0.0)
         return LiveOrderResult(

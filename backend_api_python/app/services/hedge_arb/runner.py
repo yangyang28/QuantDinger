@@ -100,6 +100,10 @@ def run_hedge_arb_tick(
     status = orch.get_status()
     drift = float(status.get("notional_drift_pct") or 0.0)
     qty_drift = float(status.get("qty_drift_pct") or 0.0)
+    try:
+        orch.accrue_funding_tick()
+    except Exception as e:
+        logger.debug("hedge_arb funding accrual sid=%s: %s", strategy_id, e)
     if drift >= cfg.rebalance_threshold_pct or qty_drift >= cfg.rebalance_threshold_pct:
         try:
             orch.rebalance()
