@@ -1,0 +1,36 @@
+htx:
+  api_key_env: HTX_API_KEY
+  secret_env: HTX_API_SECRET
+  spot_base: https://api.htx.com
+  swap_base: https://api.hbdm.com
+  spot_ws: wss://api-aws.huobi.pro/ws/v2
+
+strategy:
+  spot_symbol: trumpusdt          # HTX spot symbol (lowercase, no slash)
+  swap_symbol: TRUMP-USDT         # linear swap contract code
+  spot_usdt: 200                  # USDT notional for spot leg
+  perp_notional_usdt: 100         # target short notional
+  leverage: 2
+  currency: trump                 # base asset for earn / balance
+
+thresholds:
+  pre_redeem_pct: 0.005           # mark within 0.5% of liq -> pre-redeem
+  emergency_redeem_pct: 0.0025    # 0.25% if still not pre-redeemed
+  watch_poll_pct: 0.02            # within 2% -> faster polling
+  maintenance_pre_redeem_pct: 0.01  # within 1% during redeem maintenance hour
+
+latency:
+  poll_interval_normal_sec: 2.0
+  poll_interval_watch_sec: 0.5
+  poll_interval_critical_sec: 0.1
+  balance_ws_timeout_ms: 300
+  balance_poll_interval_ms: 80
+  balance_poll_max_ms: 1200
+  reconcile_interval_sec: 3.0
+  reconcile_max_rounds: 28800     # ~24h at 3s
+
+safety:
+  redeem_maintenance_utc8_hours: [0]  # 00:00-01:00 UTC+8 avoid new redeem if possible
+  max_sell_retries: 3
+  min_sell_qty: 0.01
+  state_file: state.json
