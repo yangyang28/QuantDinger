@@ -458,6 +458,16 @@ def on_init(ctx):
 
 def on_bar(ctx, bar):
     pass
+`,
+
+  htx_earn_hedge: () => `# ---- HTX Earn + Short Hedge (orchestrator-driven) ----
+
+def on_init(ctx):
+    ctx.log("htx_earn_hedge: 100% flexible earn + perp short; pre-redeem near liquidation")
+
+
+def on_bar(ctx, bar):
+    pass
 `
 }
 

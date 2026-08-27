@@ -78,6 +78,7 @@ BOT_TYPE_MARKETS: Dict[str, Set[str]] = {
     "trend":      {"Crypto", "USStock", "Forex"},
     # Spot + perpetual delta-neutral / funding-rate hedge (multi-exchange spot+swap).
     "hedge_arb":  {"Crypto"},
+    "htx_earn_hedge": {"Crypto"},
 }
 
 

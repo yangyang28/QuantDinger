@@ -1093,7 +1093,7 @@ class TradingExecutor:
 
     def _is_script_driven_bot(self, trading_config: Optional[Dict[str, Any]]) -> bool:
         """Bot types whose on_bar script drives entries; hedge_arb uses orchestrator instead."""
-        return self._bot_type_key(trading_config) not in ("grid", "hedge_arb")
+        return self._bot_type_key(trading_config) not in ("grid", "hedge_arb", "htx_earn_hedge")
 
     def _run_hedge_arb_live_tick(
         self,
@@ -1120,6 +1120,32 @@ class TradingExecutor:
             )
         except Exception as e:
             logger.warning(f"Strategy {strategy_id} hedge_arb tick error: {e}")
+        return True
+
+    def _run_htx_earn_hedge_live_tick(
+        self,
+        strategy_id: int,
+        *,
+        user_id: int,
+        exchange_config: Dict[str, Any],
+        trading_config: Dict[str, Any],
+        execution_mode: str,
+    ) -> bool:
+        if self._bot_type_key(trading_config) != "htx_earn_hedge":
+            return False
+        if str(execution_mode or "").strip().lower() != "live":
+            return False
+        try:
+            from app.services.htx_earn_hedge.runner import run_htx_earn_hedge_tick
+
+            run_htx_earn_hedge_tick(
+                strategy_id,
+                user_id=int(user_id or 1),
+                exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
+                trading_config=trading_config if isinstance(trading_config, dict) else {},
+            )
+        except Exception as e:
+            logger.warning(f"Strategy {strategy_id} htx_earn_hedge tick error: {e}")
         return True
 
     def _is_live_grid_resting(
@@ -2259,6 +2285,14 @@ class TradingExecutor:
                     )
                 except Exception:
                     tick_interval_sec = 300
+            elif _bot_type_for_tick == 'htx_earn_hedge':
+                try:
+                    tick_interval_sec = max(
+                        5,
+                        int((trading_config or {}).get('tick_interval_sec') or os.getenv('HTX_EARN_HEDGE_TICK_SEC', '10')),
+                    )
+                except Exception:
+                    tick_interval_sec = 10
             else:
                 tick_interval_sec = None
                 try:
@@ -2345,7 +2379,17 @@ class TradingExecutor:
                         consecutive_errors = 0
                         continue
 
-                    # ============================================
+                    if self._run_htx_earn_hedge_live_tick(
+                        strategy_id,
+                        user_id=int(strategy_user_id or strategy.get('user_id') or 1),
+                        exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
+                        trading_config=trading_config if isinstance(trading_config, dict) else {},
+                        execution_mode=execution_mode,
+                    ):
+                        pending_signals = []
+                        consecutive_errors = 0
+                        continue
+
                     # ============================================
                     if current_time >= next_kline_poll_at:
                         klines = self._fetch_latest_kline(

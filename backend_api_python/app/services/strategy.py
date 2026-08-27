@@ -958,6 +958,14 @@ class StrategyService:
                 self._display_item('dipBuyEnabled', 'trading-bot.dca.dipBuy', bool(params.get('dipBuyEnabled')), 'bool'),
                 self._display_item('dipThreshold', 'trading-bot.dca.dipThreshold', self._to_float(params.get('dipThreshold'), 0.0), 'percent'),
             ]
+        elif bot_type == 'htx_earn_hedge':
+            display['strategy_params'] = [
+                self._display_item('spotUsdt', 'trading-bot.htxEarnHedge.spotUsdt', self._to_float(tc.get('spot_usdt'), 200.0), 'usdt'),
+                self._display_item('perpNotionalUsdt', 'trading-bot.htxEarnHedge.perpNotionalUsdt', self._to_float(tc.get('perp_notional_usdt'), 100.0), 'usdt'),
+                self._display_item('leverage', 'trading-bot.htxEarnHedge.leverage', self._to_int(tc.get('leverage'), 2), 'number'),
+                self._display_item('preRedeemPct', 'trading-bot.htxEarnHedge.preRedeemPct', self._to_float(tc.get('pre_redeem_pct'), 0.005) * 100, 'percent'),
+                self._display_item('tickIntervalSec', 'trading-bot.htxEarnHedge.tickIntervalSec', self._to_int(tc.get('tick_interval_sec'), 10), 'number'),
+            ]
         elif bot_type == 'hedge_arb':
             entry_mode = str(tc.get('entry_order_mode') or tc.get('order_mode') or 'best').strip().lower()
             if entry_mode in ('maker', 'limit', 'limit_first', 'maker_then_market'):

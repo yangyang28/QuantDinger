@@ -44,7 +44,10 @@ const api = {
   hedgeArbEnter: '/api/strategies/hedge-arb/enter',
   hedgeArbExit: '/api/strategies/hedge-arb/exit',
   hedgeArbRebalance: '/api/strategies/hedge-arb/rebalance',
-  hedgeArbBacktest: '/api/strategies/hedge-arb/backtest'
+  hedgeArbBacktest: '/api/strategies/hedge-arb/backtest',
+  htxEarnHedgeStatus: '/api/strategies/htx-earn-hedge/status',
+  htxEarnHedgeDeploy: '/api/strategies/htx-earn-hedge/deploy',
+  htxEarnHedgeEmergencyExit: '/api/strategies/htx-earn-hedge/emergency-exit'
 }
 
 export function getStrategyList (params = {}) {
@@ -402,5 +405,29 @@ export function hedgeArbBacktest (payload) {
     url: api.hedgeArbBacktest,
     method: 'post',
     data: payload || {}
+  })
+}
+
+export function getHtxEarnHedgeStatus (id) {
+  return request({
+    url: api.htxEarnHedgeStatus,
+    method: 'get',
+    params: { id }
+  })
+}
+
+export function htxEarnHedgeDeploy (id) {
+  return request({
+    url: api.htxEarnHedgeDeploy,
+    method: 'post',
+    data: { id, strategy_id: id }
+  })
+}
+
+export function htxEarnHedgeEmergencyExit (id) {
+  return request({
+    url: api.htxEarnHedgeEmergencyExit,
+    method: 'post',
+    data: { id, strategy_id: id }
   })
 }

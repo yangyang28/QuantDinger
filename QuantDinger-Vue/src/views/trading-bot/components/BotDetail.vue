@@ -309,6 +309,77 @@
       </div>
     </a-card>
 
+    <a-card
+      v-if="isHtxEarnHedgeBot"
+      :bordered="false"
+      class="hedge-summary-card"
+      style="margin-top: 12px;"
+    >
+      <div class="hedge-summary">
+        <div class="hedge-summary__header">
+          <div class="hedge-summary__title">
+            <span class="hedge-summary__icon"><a-icon type="bank" /></span>
+            <div class="hedge-summary__title-text">
+              <span class="hedge-summary__name">{{ $t('trading-bot.htxEarnHedge.panelTitle') }}</span>
+              <a-tooltip :title="$t('trading-bot.htxEarnHedge.panelHint')">
+                <a-icon type="question-circle" class="hedge-summary__tip" />
+              </a-tooltip>
+            </div>
+          </div>
+          <div class="hedge-arb-actions">
+            <a-button size="small" @click="refreshHtxEarnHedgeStatus" :loading="htxEarnHedgeLoading">
+              <a-icon type="reload" />
+            </a-button>
+            <a-button
+              v-if="isHtxEarnHedgeLive"
+              size="small"
+              type="primary"
+              :loading="htxEarnHedgeActionLoading"
+              @click="handleHtxEarnHedgeDeploy"
+            >
+              {{ $t('trading-bot.htxEarnHedge.actionDeploy') }}
+            </a-button>
+            <a-button
+              v-if="isHtxEarnHedgeLive"
+              size="small"
+              type="danger"
+              :loading="htxEarnHedgeActionLoading"
+              @click="handleHtxEarnHedgeEmergencyExit"
+            >
+              {{ $t('trading-bot.htxEarnHedge.actionEmergencyExit') }}
+            </a-button>
+          </div>
+        </div>
+        <div class="hedge-summary__grid hedge-arb-grid">
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.htxEarnHedge.fsm') }}</span></div>
+            <div class="hedge-stat__value">{{ htxEarnHedgeStatus.fsm || 'idle' }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.htxEarnHedge.preRedeemed') }}</span></div>
+            <div class="hedge-stat__value">{{ htxEarnHedgeStatus.pre_redeemed ? 'Y' : 'N' }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.htxEarnHedge.earnQty') }}</span></div>
+            <div class="hedge-stat__value">{{ formatHedgeQty(htxEarnHedgeStatus.earn_qty) }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.htxEarnHedge.spotAvail') }}</span></div>
+            <div class="hedge-stat__value">{{ formatHedgeQty(htxEarnHedgeStatus.spot_avail) }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.htxEarnHedge.perpQty') }}</span></div>
+            <div class="hedge-stat__value">{{ formatHedgeQty(htxEarnHedgeStatus.perp_qty) }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.htxEarnHedge.distToLiq') }}</span></div>
+            <div class="hedge-stat__value">{{ formatBasisPct(htxEarnHedgeStatus.dist_to_liq_pct) }}</div>
+          </div>
+        </div>
+        <div v-if="htxEarnHedgeStatus.last_error" class="hedge-arb-error">{{ htxEarnHedgeStatus.last_error }}</div>
+      </div>
+    </a-card>
+
     <a-modal
       :title="$t('trading-bot.hedgeArb.backtestTitle')"
       :visible="hedgeArbBacktestVisible"
@@ -563,7 +634,7 @@ import PositionRecords from '@/views/trading-assistant/components/PositionRecord
 import PerformanceAnalysis from '@/views/trading-assistant/components/PerformanceAnalysis.vue'
 import StrategyReviewReport from '@/views/trading-assistant/components/StrategyReviewReport.vue'
 import StrategyLogs from '@/views/trading-assistant/components/StrategyLogs.vue'
-import { getStrategyPositions, getStrategyTrades, getGridRestingOrders, getHedgeArbStatus, hedgeArbEnter, hedgeArbExit, hedgeArbRebalance, hedgeArbBacktest } from '@/api/strategy'
+import { getStrategyPositions, getStrategyTrades, getGridRestingOrders, getHedgeArbStatus, hedgeArbEnter, hedgeArbExit, hedgeArbRebalance, hedgeArbBacktest, getHtxEarnHedgeStatus, htxEarnHedgeDeploy, htxEarnHedgeEmergencyExit } from '@/api/strategy'
 
 const TYPE_META = {
   grid: { icon: 'bar-chart', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
@@ -572,6 +643,7 @@ const TYPE_META = {
   dca: { icon: 'fund', gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
   arbitrage: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   hedge_arb: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
+  htx_earn_hedge: { icon: 'bank', gradient: 'linear-gradient(135deg, #ff6a88 0%, #ff99ac 100%)' },
   custom: { icon: 'code', gradient: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' }
 }
 
@@ -651,7 +723,11 @@ export default {
       hedgeArbActionLoading: false,
       hedgeArbBacktestVisible: false,
       hedgeArbBacktestLoading: false,
-      hedgeArbBacktestResult: null
+      hedgeArbBacktestResult: null,
+      htxEarnHedgeStatus: {},
+      htxEarnHedgeLoading: false,
+      htxEarnHedgeTimer: null,
+      htxEarnHedgeActionLoading: false
     }
   },
   computed: {
@@ -755,6 +831,14 @@ export default {
     isHedgeArbBot () {
       const bt = this.bot?.bot_type || this.tc.bot_type
       return bt === 'hedge_arb'
+    },
+    isHtxEarnHedgeBot () {
+      const bt = this.bot?.bot_type || this.tc.bot_type
+      return bt === 'htx_earn_hedge'
+    },
+    isHtxEarnHedgeLive () {
+      const mode = String(this.bot?.execution_mode || this.tc.execution_mode || '').toLowerCase()
+      return mode === 'live'
     },
     showBasicOrderMode () {
       if (this.isHedgeArbBot) return true
@@ -866,6 +950,7 @@ export default {
       handler (id) {
         this.stopHedgePolling()
         this.stopHedgeArbPolling()
+        this.stopHtxEarnHedgePolling()
         this.stopRestingPolling()
         if (id && this.isGridLikeBot) {
           this.refreshHedgeSummary()
@@ -874,6 +959,10 @@ export default {
         if (id && this.isHedgeArbBot) {
           this.refreshHedgeArbStatus()
           this.startHedgeArbPolling()
+        }
+        if (id && this.isHtxEarnHedgeBot) {
+          this.refreshHtxEarnHedgeStatus()
+          this.startHtxEarnHedgePolling()
         }
         if (id && this.isGridBot) {
           this.refreshRestingOrders(true)
@@ -906,6 +995,15 @@ export default {
         }
       }
     },
+    isHtxEarnHedgeBot: {
+      handler (val) {
+        this.stopHtxEarnHedgePolling()
+        if (val && this.bot?.id) {
+          this.refreshHtxEarnHedgeStatus()
+          this.startHtxEarnHedgePolling()
+        }
+      }
+    },
     bot () {
       this.activeTab = 'params'
     }
@@ -913,6 +1011,7 @@ export default {
   beforeDestroy () {
     this.stopHedgePolling()
     this.stopHedgeArbPolling()
+    this.stopHtxEarnHedgePolling()
     this.stopRestingPolling()
   },
   methods: {
@@ -1118,6 +1217,65 @@ export default {
         this.hedgeArbBacktestVisible = false
       } finally {
         this.hedgeArbBacktestLoading = false
+      }
+    },
+    startHtxEarnHedgePolling () {
+      this.stopHtxEarnHedgePolling()
+      if (!this.isHtxEarnHedgeBot) return
+      this.htxEarnHedgeTimer = setInterval(() => {
+        this.refreshHtxEarnHedgeStatus(true)
+      }, 15000)
+    },
+    stopHtxEarnHedgePolling () {
+      if (this.htxEarnHedgeTimer) {
+        clearInterval(this.htxEarnHedgeTimer)
+        this.htxEarnHedgeTimer = null
+      }
+    },
+    async refreshHtxEarnHedgeStatus (silent = false) {
+      if (!this.bot?.id || !this.isHtxEarnHedgeBot) return
+      if (!silent) this.htxEarnHedgeLoading = true
+      try {
+        const res = await getHtxEarnHedgeStatus(this.bot.id)
+        if (res && res.code === 1) {
+          this.htxEarnHedgeStatus = res.data || {}
+        }
+      } finally {
+        this.htxEarnHedgeLoading = false
+      }
+    },
+    async handleHtxEarnHedgeDeploy () {
+      if (!this.bot?.id) return
+      this.htxEarnHedgeActionLoading = true
+      try {
+        const res = await htxEarnHedgeDeploy(this.bot.id)
+        if (res && res.code === 1) {
+          this.$message.success(this.$t('trading-bot.htxEarnHedge.deploySuccess'))
+          await this.refreshHtxEarnHedgeStatus()
+        } else {
+          throw new Error((res && res.msg) || 'deploy failed')
+        }
+      } catch (e) {
+        this.$message.error(e.message || 'deploy failed')
+      } finally {
+        this.htxEarnHedgeActionLoading = false
+      }
+    },
+    async handleHtxEarnHedgeEmergencyExit () {
+      if (!this.bot?.id) return
+      this.htxEarnHedgeActionLoading = true
+      try {
+        const res = await htxEarnHedgeEmergencyExit(this.bot.id)
+        if (res && res.code === 1) {
+          this.$message.success(this.$t('trading-bot.htxEarnHedge.emergencySuccess'))
+          await this.refreshHtxEarnHedgeStatus()
+        } else {
+          throw new Error((res && res.msg) || 'exit failed')
+        }
+      } catch (e) {
+        this.$message.error(e.message || 'exit failed')
+      } finally {
+        this.htxEarnHedgeActionLoading = false
       }
     },
     formatLegSize (leg) {

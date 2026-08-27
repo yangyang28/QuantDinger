@@ -96,6 +96,13 @@
             >
               <a-icon type="warning" /> {{ $t('trading-bot.hedgeArb.exchangeNotSupported') }}
             </div>
+            <div
+              v-if="isHtxEarnHedgeBot && currentExchangeId && !htxEarnHedgeExchangeSupported"
+              class="form-hint"
+              style="margin-top: 6px; color: #ff9800;"
+            >
+              <a-icon type="warning" /> {{ $t('trading-bot.htxEarnHedge.exchangeNotSupported') }}
+            </div>
           </a-form-model-item>
 
           <a-form-model-item :label="$t('trading-bot.wizard.symbol')" prop="symbol">
@@ -160,10 +167,12 @@
           </a-form-model-item>
 
           <a-form-model-item :label="$t('trading-bot.wizard.marketType')">
-            <template v-if="isHedgeArbBot">
+            <template v-if="isOrchestratorHedgeBot">
               <a-tag color="orange">{{ $t('trading-bot.wizard.futures') }}</a-tag>
               <span class="form-hint" style="margin-left: 8px;">
-                {{ isZhLocale ? 'K 线使用永续价；orchestrator 自动开 spot + swap 两腿' : 'K-line uses perp price; orchestrator opens spot + swap legs' }}
+                {{ isHtxEarnHedgeBot
+                  ? $t('trading-bot.htxEarnHedge.marketTypeHint')
+                  : (isZhLocale ? 'K 线使用永续价；orchestrator 自动开 spot + swap 两腿' : 'K-line uses perp price; orchestrator opens spot + swap legs') }}
               </span>
             </template>
             <template v-else-if="shouldShowMarketTypeSelector">
@@ -181,7 +190,7 @@
           </a-form-model-item>
 
           <a-form-model-item
-            v-if="baseForm.marketType === 'swap' && !isHedgeArbBot"
+            v-if="baseForm.marketType === 'swap' && !isOrchestratorHedgeBot"
             :label="$t('trading-bot.wizard.leverage')"
           >
             <a-input-number
@@ -234,13 +243,13 @@
           :label-col="{ span: 8 }"
           :wrapper-col="{ span: 14 }"
         >
-          <template v-if="isHedgeArbBot">
+          <template v-if="isOrchestratorHedgeBot">
             <a-alert
               type="info"
               show-icon
               style="margin-bottom: 16px;"
-              :message="$t('trading-bot.hedgeArb.riskTitle')"
-              :description="$t('trading-bot.hedgeArb.riskDesc')"
+              :message="isHtxEarnHedgeBot ? $t('trading-bot.htxEarnHedge.riskTitle') : $t('trading-bot.hedgeArb.riskTitle')"
+              :description="isHtxEarnHedgeBot ? $t('trading-bot.htxEarnHedge.riskDesc') : $t('trading-bot.hedgeArb.riskDesc')"
             />
           </template>
           <template v-else-if="botType !== 'martingale'">
@@ -376,16 +385,16 @@
 
           <h4 style="margin-top: 20px;">{{ $t('trading-bot.wizard.riskParams') }}</h4>
           <a-descriptions :column="1" bordered size="small">
-            <a-descriptions-item v-if="botType !== 'martingale' && !isHedgeArbBot" :label="gridLikeStopLossLabel">
+            <a-descriptions-item v-if="botType !== 'martingale' && !isOrchestratorHedgeBot" :label="gridLikeStopLossLabel">
               {{ riskForm.stopLossPct }}%
             </a-descriptions-item>
-            <a-descriptions-item v-if="botType !== 'martingale' && !isHedgeArbBot" :label="gridLikeTakeProfitLabel">
+            <a-descriptions-item v-if="botType !== 'martingale' && !isOrchestratorHedgeBot" :label="gridLikeTakeProfitLabel">
               {{ riskForm.takeProfitPct }}%
             </a-descriptions-item>
             <a-descriptions-item v-if="isGridLikeBot" :label="$t('trading-bot.risk.gridOobBufferPct')">
               {{ riskForm.gridOobBufferPct }}%
             </a-descriptions-item>
-            <a-descriptions-item v-if="botType !== 'martingale' && !isHedgeArbBot" :label="$t('trading-bot.risk.maxPosition')">
+            <a-descriptions-item v-if="botType !== 'martingale' && !isOrchestratorHedgeBot" :label="$t('trading-bot.risk.maxPosition')">
               ${{ riskForm.maxPosition }}
             </a-descriptions-item>
             <a-descriptions-item :label="dailyLossLabel">
@@ -499,6 +508,7 @@ import MartingaleConfig from './configs/MartingaleConfig.vue'
 import TrendConfig from './configs/TrendConfig.vue'
 import DCAConfig from './configs/DCAConfig.vue'
 import HedgeArbConfig from './configs/HedgeArbConfig.vue'
+import HtxEarnHedgeConfig from './configs/HtxEarnHedgeConfig.vue'
 import { formatPercentDisplay, ratioOrPercentToUiPercent } from '@/utils/numberFormat'
 
 const BOT_TYPE_MAP = {
@@ -526,6 +536,11 @@ const BOT_TYPE_MAP = {
     icon: 'swap',
     gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
     component: 'HedgeArbConfig'
+  },
+  htx_earn_hedge: {
+    icon: 'bank',
+    gradient: 'linear-gradient(135deg, #ff6a88 0%, #ff99ac 100%)',
+    component: 'HtxEarnHedgeConfig'
   }
 }
 
@@ -543,6 +558,11 @@ function isHedgeArbExchangeSupported (exchangeId) {
   return HEDGE_ARB_EXCHANGE_IDS.has(normalizeHedgeArbExchangeId(exchangeId))
 }
 
+function isHtxEarnHedgeExchangeSupported (exchangeId) {
+  const ex = String(exchangeId || '').trim().toLowerCase()
+  return ex === 'htx' || ex === 'huobi'
+}
+
 // All knowledge about which broker can serve which market lives in the
 // backend `app/services/broker_market_policy.py` and is fetched at boot
 // into the `policy` Vuex store. We read it via the `brokerMarketPolicy`
@@ -551,7 +571,7 @@ function isHedgeArbExchangeSupported (exchangeId) {
 
 export default {
   name: 'BotCreateWizard',
-  components: { GridConfig, MartingaleConfig, TrendConfig, DCAConfig, HedgeArbConfig },
+  components: { GridConfig, MartingaleConfig, TrendConfig, DCAConfig, HedgeArbConfig, HtxEarnHedgeConfig },
   props: {
     botType: { type: String, required: true },
     aiPreset: { type: Object, default: null },
@@ -801,9 +821,19 @@ export default {
     isHedgeArbBot () {
       return this.botType === 'hedge_arb'
     },
+    isHtxEarnHedgeBot () {
+      return this.botType === 'htx_earn_hedge'
+    },
+    isOrchestratorHedgeBot () {
+      return this.isHedgeArbBot || this.isHtxEarnHedgeBot
+    },
     hedgeArbExchangeSupported () {
       if (!this.isHedgeArbBot) return true
       return isHedgeArbExchangeSupported(this.currentExchangeId)
+    },
+    htxEarnHedgeExchangeSupported () {
+      if (!this.isHtxEarnHedgeBot) return true
+      return isHtxEarnHedgeExchangeSupported(this.currentExchangeId)
     },
     isZhLocale () {
       return String(this.$i18n?.locale || '').toLowerCase().startsWith('zh')
@@ -960,6 +990,11 @@ export default {
       this.baseForm.marketType = 'swap'
       this.baseForm.leverage = 1
     }
+    if (this.botType === 'htx_earn_hedge' && !this.editBot) {
+      this.baseForm.marketCategory = 'Crypto'
+      this.baseForm.marketType = 'swap'
+      this.baseForm.leverage = 2
+    }
     this.loadCredentials()
     if (this.editBot) {
       this.applyEditBot()
@@ -1041,6 +1076,10 @@ export default {
         rebalanceThresholdPct: this.$t('trading-bot.hedgeArb.rebalanceThresholdPct'),
         tickIntervalSec: this.$t('trading-bot.hedgeArb.tickIntervalSec'),
         maxHoldHours: this.$t('trading-bot.hedgeArb.maxHoldHours'),
+        spotUsdt: this.$t('trading-bot.htxEarnHedge.spotUsdt'),
+        perpNotionalUsdt: this.$t('trading-bot.htxEarnHedge.perpNotionalUsdt'),
+        preRedeemPct: this.$t('trading-bot.htxEarnHedge.preRedeemPct'),
+        leverage: this.$t('trading-bot.htxEarnHedge.leverage'),
         // Trailing TP fields (shared between martingale and trend bots).
         trailingTpEnabled: this.fallbackLabel('启用追踪止盈', 'Trailing TP'),
         trailingTpActivationPct: this.fallbackLabel('追踪止盈激活涨幅', 'Trailing TP Activation %'),
@@ -1506,6 +1545,11 @@ export default {
         leverage = 1
         tradeDirection = 'long'
       }
+      if (this.isHtxEarnHedgeBot) {
+        marketType = 'swap'
+        leverage = Number(strategyParams.leverage || 2)
+        tradeDirection = 'long'
+      }
 
       // Validate broker x market compatibility against the policy snapshot.
       // The backend will re-validate via broker_market_policy.validate_strategy_config
@@ -1524,6 +1568,10 @@ export default {
       }
       if (this.isHedgeArbBot && !isHedgeArbExchangeSupported(exId)) {
         throw new Error(this.$t('trading-bot.hedgeArb.exchangeNotSupported'))
+      }
+
+      if (this.isHtxEarnHedgeBot && !isHtxEarnHedgeExchangeSupported(exId)) {
+        throw new Error(this.$t('trading-bot.htxEarnHedge.exchangeNotSupported'))
       }
 
       const hedgeArbExtras = {}
@@ -1547,7 +1595,18 @@ export default {
         hedgeArbExtras.order_mode = 'market'
       }
 
-      const hedgeArbOrderMode = this.isHedgeArbBot ? 'market' : null
+      const htxEarnExtras = {}
+      if (this.isHtxEarnHedgeBot) {
+        const p = strategyParams
+        htxEarnExtras.spot_usdt = p.spotUsdt
+        htxEarnExtras.perp_notional_usdt = p.perpNotionalUsdt
+        htxEarnExtras.leverage = p.leverage
+        htxEarnExtras.pre_redeem_pct = p.preRedeemPct / 100
+        htxEarnExtras.tick_interval_sec = p.tickIntervalSec
+        htxEarnExtras.order_mode = 'market'
+      }
+
+      const hedgeArbOrderMode = this.isHedgeArbBot ? 'market' : (this.isHtxEarnHedgeBot ? 'market' : null)
 
       return {
         strategy_name: this.baseForm.botName,
@@ -1567,13 +1626,14 @@ export default {
           leverage: leverage,
           trade_direction: tradeDirection,
           initial_capital: this.baseForm.initialCapital,
-          stop_loss_pct: (this.botType === 'martingale' || this.isHedgeArbBot) ? 0 : this.riskForm.stopLossPct,
-          take_profit_pct: (this.botType === 'martingale' || this.isHedgeArbBot) ? 0 : this.riskForm.takeProfitPct,
-          max_position: (this.botType === 'martingale' || this.isHedgeArbBot) ? 0 : this.riskForm.maxPosition,
+          stop_loss_pct: (this.botType === 'martingale' || this.isOrchestratorHedgeBot) ? 0 : this.riskForm.stopLossPct,
+          take_profit_pct: (this.botType === 'martingale' || this.isOrchestratorHedgeBot) ? 0 : this.riskForm.takeProfitPct,
+          max_position: (this.botType === 'martingale' || this.isOrchestratorHedgeBot) ? 0 : this.riskForm.maxPosition,
           max_daily_loss: this.riskForm.maxDailyLoss,
           bot_type: this.botType,
           bot_params: strategyParams,
           ...hedgeArbExtras,
+          ...htxEarnExtras,
           // Grid-only knobs — backend ignores them for trend/martingale, and
           // sending them as undefined would override the server-side default
           // of 1s for grid bots, so only attach them on grid/dca.

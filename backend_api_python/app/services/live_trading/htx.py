@@ -987,3 +987,140 @@ class HtxClient(BaseRestClient):
                     "order": last,
                 }
             time.sleep(float(poll_interval_sec or 0.5))
+
+    # --- earn (spot private) ---
+
+    def earn_find_flexible_project(self, currency: str) -> Dict[str, Any]:
+        raw = self._spot_private_request(
+            "GET",
+            "/v1/earn/project/queryEarnProjectList",
+            params={
+                "currency": str(currency or "").upper(),
+                "projectType": "0",
+                "pageNum": "1",
+                "pageSize": "20",
+            },
+        )
+        data = raw.get("data") if isinstance(raw, dict) else {}
+        items = (data.get("items") if isinstance(data, dict) else data) or []
+        if isinstance(items, dict):
+            items = items.get("items") or []
+        for item in items:
+            if isinstance(item, dict):
+                return item
+        raise LiveTradingError(f"no flexible earn project for {currency}")
+
+    def earn_user_assets(self, currency: str) -> List[Dict[str, Any]]:
+        raw = self._spot_private_request(
+            "GET",
+            "/v1/earn/order/user/assets/list",
+            params={
+                "projectType": "0",
+                "currency": str(currency or "").upper(),
+                "pageNum": "1",
+                "pageSize": "100",
+            },
+        )
+        data = raw.get("data") if isinstance(raw, dict) else {}
+        items = data.get("items") if isinstance(data, dict) else data
+        return [x for x in (items or []) if isinstance(x, dict)]
+
+    def earn_subscribe(self, *, project_id: int, amount: str, request_id: str) -> Dict[str, Any]:
+        body = {"id": int(project_id), "amount": str(amount), "requestId": str(request_id)}
+        return self._spot_private_request("POST", "/v1/earn/order/demand/add", json_body=body)
+
+    def earn_redeem(self, *, order_id: int, amount: str, request_id: str) -> Dict[str, Any]:
+        body = {"orderId": int(order_id), "amount": str(amount), "requestId": str(request_id)}
+        return self._spot_private_request("POST", "/v1/earn/order/demand/redeem-order", json_body=body)
+
+    def earn_total_qty(self, currency: str) -> Tuple[float, Optional[int]]:
+        total = 0.0
+        order_id: Optional[int] = None
+        for row in self.earn_user_assets(currency):
+            try:
+                amt = float(row.get("amount") or row.get("totalAmount") or row.get("balance") or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            total += amt
+            if order_id is None and row.get("orderId") is not None:
+                try:
+                    order_id = int(row.get("orderId"))
+                except (TypeError, ValueError):
+                    pass
+        return total, order_id
+
+    def get_spot_trade_balance(self, currency: str) -> float:
+        """Available balance in spot trade account for one currency."""
+        account_id = self._get_spot_account_id()
+        raw = self._spot_private_request("GET", f"/v1/account/accounts/{account_id}/balance")
+        ccy = str(currency or "").lower()
+        for item in (raw.get("data") or {}).get("list") or []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("currency") or "").lower() != ccy:
+                continue
+            if str(item.get("type") or "") == "trade":
+                try:
+                    return float(item.get("balance") or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+        return 0.0
+
+    def swap_liquidation_price(self, *, symbol: str) -> float:
+        if self.market_type != "swap":
+            return 0.0
+        positions = self.get_positions(symbol=symbol)
+        rows = positions.get("data") if isinstance(positions, dict) else positions
+        if not isinstance(rows, list):
+            rows = []
+        for pos in rows:
+            if not isinstance(pos, dict):
+                continue
+            direction = str(pos.get("direction") or pos.get("side") or pos.get("position_side") or "").lower()
+            if direction not in ("sell", "short") and str(pos.get("position_side") or "").lower() != "short":
+                continue
+            for key in ("liquidation_price", "liq_price", "liquidationPrice", "liq_px"):
+                val = pos.get(key)
+                if val is None:
+                    continue
+                try:
+                    px = float(val)
+                    if px > 0:
+                        return px
+                except (TypeError, ValueError):
+                    pass
+            try:
+                entry = float(pos.get("cost_open") or pos.get("avg_open_price") or pos.get("open_avg_price") or 0)
+                lever = float(pos.get("lever_rate") or pos.get("lever") or 2)
+            except (TypeError, ValueError):
+                entry, lever = 0.0, 2.0
+            if entry > 0 and lever > 0:
+                return entry * (1.0 + 1.0 / lever)
+        return 0.0
+
+    def swap_short_base_qty(self, *, symbol: str) -> float:
+        if self.market_type != "swap":
+            return 0.0
+        positions = self.get_positions(symbol=symbol)
+        rows = positions.get("data") if isinstance(positions, dict) else positions
+        if not isinstance(rows, list):
+            rows = []
+        total = 0.0
+        info = self.get_contract_info(symbol=symbol) or {}
+        try:
+            contract_size = float(info.get("contract_size") or info.get("contractSize") or 1)
+        except (TypeError, ValueError):
+            contract_size = 1.0
+        for pos in rows:
+            if not isinstance(pos, dict):
+                continue
+            direction = str(pos.get("direction") or pos.get("side") or pos.get("position_side") or "").lower()
+            if direction not in ("sell", "short") and str(pos.get("position_side") or "").lower() != "short":
+                continue
+            try:
+                vol = float(pos.get("volume") or pos.get("qty") or pos.get("position_qty") or 0)
+            except (TypeError, ValueError):
+                vol = 0.0
+            if vol > 0:
+                total += vol * contract_size
+        return total

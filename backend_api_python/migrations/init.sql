@@ -547,6 +547,25 @@ CREATE TABLE IF NOT EXISTS qd_hedge_arb_state (
 );
 CREATE INDEX IF NOT EXISTS idx_hedge_arb_state_status ON qd_hedge_arb_state(status);
 
+CREATE TABLE IF NOT EXISTS qd_htx_earn_hedge_state (
+    strategy_id INTEGER PRIMARY KEY REFERENCES qd_strategies_trading(id) ON DELETE CASCADE,
+    fsm VARCHAR(32) NOT NULL DEFAULT 'idle',
+    symbol VARCHAR(50) NOT NULL DEFAULT '',
+    currency VARCHAR(24) NOT NULL DEFAULT '',
+    earn_order_id BIGINT,
+    earn_qty DECIMAL(24, 8) NOT NULL DEFAULT 0,
+    perp_qty DECIMAL(24, 8) NOT NULL DEFAULT 0,
+    pre_redeemed BOOLEAN NOT NULL DEFAULT FALSE,
+    redeem_sent BOOLEAN NOT NULL DEFAULT FALSE,
+    redeem_request_id VARCHAR(64) NOT NULL DEFAULT '',
+    last_perp_qty DECIMAL(24, 8) NOT NULL DEFAULT 0,
+    deployed_at TIMESTAMP,
+    last_error TEXT DEFAULT '',
+    extra JSONB DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_htx_earn_hedge_fsm ON qd_htx_earn_hedge_state(fsm);
+
 -- =============================================================================
 -- 5. Pending Orders Queue
 -- =============================================================================

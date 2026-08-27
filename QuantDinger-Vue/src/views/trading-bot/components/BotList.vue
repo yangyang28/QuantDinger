@@ -102,6 +102,7 @@ const TYPE_META = {
   dca: { icon: 'fund', gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
   arbitrage: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   hedge_arb: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
+  htx_earn_hedge: { icon: 'bank', gradient: 'linear-gradient(135deg, #ff6a88 0%, #ff99ac 100%)' },
   custom: { icon: 'code', gradient: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' }
 }
 

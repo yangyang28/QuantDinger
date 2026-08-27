@@ -114,6 +114,16 @@ export default {
           riskLabel: this.$t('trading-bot.risk.medium'),
           riskClass: 'medium',
           scene: this.$t('trading-bot.scene.funding')
+        },
+        {
+          key: 'htx_earn_hedge',
+          name: this.$t('trading-bot.type.htx_earn_hedge'),
+          desc: this.$t('trading-bot.type.htx_earn_hedgeDesc'),
+          icon: 'bank',
+          gradient: 'linear-gradient(135deg, #ff6a88 0%, #ff99ac 100%)',
+          riskLabel: this.$t('trading-bot.risk.high'),
+          riskClass: 'high',
+          scene: this.$t('trading-bot.scene.earnHedge')
         }
       ]
       // Tag each card with the markets it supports so the parent (or the
