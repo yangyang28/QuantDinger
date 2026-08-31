@@ -36,6 +36,22 @@ def _dist_to_liq_pct(mark: float, liq: float) -> float:
     return (liq - mark) / liq
 
 
+def _deploy_step_error(step: str, exc: Exception) -> LiveTradingError:
+    return LiveTradingError(f"deploy step {step} failed: {exc}")
+
+
+def _expected_spot_base(cfg: HtxEarnHedgeConfig, last: float) -> float:
+    if last <= 0:
+        return 0.0
+    return cfg.spot_usdt / last
+
+
+def _expected_perp_base(cfg: HtxEarnHedgeConfig, last: float) -> float:
+    if last <= 0:
+        return 0.0
+    return cfg.perp_notional_usdt / last
+
+
 class HtxEarnHedgeOrchestrator:
     def __init__(
         self,
@@ -71,10 +87,32 @@ class HtxEarnHedgeOrchestrator:
             raise LiveTradingError("HTX swap client required")
         return client
 
+    def _save_deploy_progress(self, state: HtxEarnHedgeState, *, step: str, last_error: str = "") -> None:
+        state.extra = state.extra or {}
+        state.extra["deploy_step"] = step
+        state.last_error = last_error
+        self.repo.save(state)
+
+    def _resolve_earn_order_id(self, spot: HtxClient, ccy: str, state: HtxEarnHedgeState) -> Optional[int]:
+        _, order_id = spot.earn_total_qty(ccy)
+        if order_id is not None:
+            return order_id
+        if state.earn_order_id:
+            return state.earn_order_id
+        assets = spot.earn_user_assets(ccy)
+        if assets:
+            try:
+                return int(assets[0].get("orderId") or 0) or None
+            except (TypeError, ValueError):
+                return None
+        return None
+
     def deploy(self) -> Dict[str, Any]:
         state = self.repo.ensure_row(self.strategy_id, self.cfg.symbol)
-        if state.fsm not in (FSM_IDLE, FSM_DONE) and state.deployed_at:
+        if state.fsm == FSM_ARMED and state.deployed_at:
             raise LiveTradingError(f"already deployed (fsm={state.fsm})")
+        if state.fsm not in (FSM_IDLE, FSM_DONE, FSM_ARMED):
+            raise LiveTradingError(f"cannot deploy while fsm={state.fsm}")
 
         spot = self._spot_client()
         swap = self._swap_client()
@@ -84,60 +122,147 @@ class HtxEarnHedgeOrchestrator:
         tick = spot.get_ticker(symbol=sym)
         last = float(tick.get("close") or tick.get("price") or 0)
         if last <= 0:
-            raise LiveTradingError("cannot fetch spot price")
+            raise LiveTradingError("deploy step price: cannot fetch spot price")
 
-        base_qty = self.cfg.spot_usdt / last if last > 0 else 0.0
-        spot.place_market_order(
-            symbol=sym,
-            side="buy",
-            qty=base_qty,
-            client_order_id=_new_request_id("buy"),
-        )
-        time.sleep(1.5)
-        avail = spot.get_spot_trade_balance(ccy)
-        if avail <= 0:
-            avail = spot.get_spot_trade_balance(ccy)
-        if avail <= 0:
-            raise LiveTradingError(f"no {ccy} after spot buy")
+        min_qty = self.cfg.min_sell_qty
+        expected_spot = _expected_spot_base(self.cfg, last)
+        expected_perp = _expected_perp_base(self.cfg, last)
 
-        project = spot.earn_find_flexible_project(ccy)
-        project_id = int(project.get("id") or project.get("projectId") or 0)
-        if project_id <= 0:
-            raise LiveTradingError("earn project id not found")
-        amt = f"{avail:.8f}".rstrip("0").rstrip(".")
-        spot.earn_subscribe(project_id=project_id, amount=amt, request_id=_new_request_id("sub"))
-        time.sleep(1.0)
+        spot_avail = spot.get_spot_trade_balance(ccy)
+        earn_qty, _ = spot.earn_total_qty(ccy)
+        perp_open = swap.swap_short_base_qty(symbol=sym)
 
-        earn_total, order_id = spot.earn_total_qty(ccy)
-        if order_id is None:
-            assets = spot.earn_user_assets(ccy)
-            if assets:
-                order_id = int(assets[0].get("orderId") or 0) or None
+        usdt_avail = spot.get_spot_usdt_trade_balance()
+        if usdt_avail + 1e-6 < self.cfg.spot_usdt and spot_avail < min_qty and earn_qty < min_qty:
+            raise LiveTradingError(
+                f"deploy step spot_buy: insufficient USDT (need≈{self.cfg.spot_usdt:.2f}, "
+                f"spot_usdt_avail={usdt_avail:.2f})"
+            )
 
-        perp_qty = self.cfg.perp_notional_usdt / last if last > 0 else 0.0
-        swap.set_leverage(symbol=sym, leverage=float(self.cfg.leverage))
-        swap.place_market_order(
-            symbol=sym,
-            side="sell",
-            qty=perp_qty,
-            client_order_id=_new_request_id("short"),
-        )
-        perp_open = swap.swap_short_base_qty(symbol=sym) or perp_qty
+        # --- Step 1: spot buy (skip if already holding enough base or already in earn) ---
+        need_spot_buy = earn_qty < min_qty and spot_avail < max(expected_spot * 0.9, min_qty)
+        if need_spot_buy:
+            self._save_deploy_progress(state, step="spot_buy")
+            try:
+                spot.spot_market_buy_usdt(
+                    symbol=sym,
+                    usdt_amount=self.cfg.spot_usdt,
+                    client_order_id=_new_request_id("buy"),
+                )
+            except LiveTradingError as exc:
+                raise _deploy_step_error("spot_buy", exc) from exc
+            spot_avail = self._wait_spot_available(spot, max(expected_spot * 0.95, min_qty))
+            if spot_avail < min_qty:
+                raise LiveTradingError(
+                    f"deploy step spot_buy: no {ccy} credited after buy (avail={spot_avail:.8f})"
+                )
+            state.extra = state.extra or {}
+            state.extra["spot_bought_usdt"] = self.cfg.spot_usdt
+            self._save_deploy_progress(state, step="spot_buy_done")
+        else:
+            spot_avail = max(spot_avail, earn_qty)
+            logger.info(
+                "htx_earn_hedge deploy sid=%s skip spot_buy spot=%.8f earn=%.8f",
+                self.strategy_id,
+                spot_avail,
+                earn_qty,
+            )
+
+        # --- Step 2: earn subscribe (skip if already staked) ---
+        earn_qty, _ = spot.earn_total_qty(ccy)
+        if earn_qty < min_qty:
+            subscribe_from = spot.get_spot_trade_balance(ccy)
+            if subscribe_from < min_qty:
+                subscribe_from = self._wait_spot_available(spot, max(expected_spot * 0.95, min_qty))
+            if subscribe_from < min_qty:
+                raise LiveTradingError(
+                    f"deploy step earn_subscribe: no {ccy} in spot to subscribe (avail={subscribe_from:.8f})"
+                )
+            self._save_deploy_progress(state, step="earn_subscribe")
+            try:
+                project = spot.earn_find_flexible_project(ccy)
+                project_id = int(project.get("id") or project.get("projectId") or 0)
+                if project_id <= 0:
+                    raise LiveTradingError("earn project id not found")
+                subscribe_qty = subscribe_from * 0.995
+                amt = HtxClient.format_earn_amount(subscribe_qty, precision=8)
+                spot.earn_subscribe(
+                    project_id=project_id,
+                    amount=amt,
+                    request_id=_new_request_id("sub"),
+                )
+            except LiveTradingError as exc:
+                raise _deploy_step_error("earn_subscribe", exc) from exc
+            time.sleep(1.0)
+            earn_qty, _ = spot.earn_total_qty(ccy)
+            if earn_qty < min_qty:
+                raise LiveTradingError(
+                    f"deploy step earn_subscribe: earn balance still zero after subscribe "
+                    f"(spot_avail={subscribe_from:.8f})"
+                )
+            self._save_deploy_progress(state, step="earn_subscribe_done")
+        else:
+            logger.info(
+                "htx_earn_hedge deploy sid=%s skip earn_subscribe earn=%.8f",
+                self.strategy_id,
+                earn_qty,
+            )
+
+        order_id = self._resolve_earn_order_id(spot, ccy, state)
+
+        # --- Step 3: perp short (skip if already short enough) ---
+        perp_open = swap.swap_short_base_qty(symbol=sym)
+        need_perp = perp_open < max(expected_perp * 0.9, min_qty)
+        if need_perp:
+            self._save_deploy_progress(state, step="perp_short")
+            try:
+                swap.set_leverage(symbol=sym, leverage=float(self.cfg.leverage))
+                short_qty = expected_perp if perp_open < min_qty else max(expected_perp - perp_open, 0.0)
+                if short_qty >= min_qty:
+                    swap.place_market_order(
+                        symbol=sym,
+                        side="sell",
+                        qty=short_qty,
+                        client_order_id=_new_request_id("short"),
+                    )
+            except LiveTradingError as exc:
+                raise _deploy_step_error("perp_short", exc) from exc
+            perp_open = swap.swap_short_base_qty(symbol=sym) or expected_perp
+            if perp_open < min_qty:
+                raise LiveTradingError(
+                    f"deploy step perp_short: no short position after order (qty={perp_open:.8f})"
+                )
+            self._save_deploy_progress(state, step="perp_short_done")
+        else:
+            logger.info(
+                "htx_earn_hedge deploy sid=%s skip perp_short perp=%.8f",
+                self.strategy_id,
+                perp_open,
+            )
+
+        earn_qty, _ = spot.earn_total_qty(ccy)
+        order_id = self._resolve_earn_order_id(spot, ccy, state)
 
         state.fsm = FSM_ARMED
         state.symbol = self.cfg.symbol
         state.currency = ccy
         state.earn_order_id = order_id
-        state.earn_qty = earn_total or avail
+        state.earn_qty = earn_qty or spot_avail
         state.perp_qty = perp_open
         state.last_perp_qty = perp_open
         state.pre_redeemed = False
         state.redeem_sent = False
         state.redeem_request_id = ""
         state.deployed_at = datetime.now(timezone.utc).isoformat()
+        state.extra = state.extra or {}
+        state.extra["deploy_step"] = "done"
         state.last_error = ""
         self.repo.save(state)
-        append_strategy_log(self.strategy_id, "info", f"HTX earn hedge deployed earn={state.earn_qty:.8f} perp={state.perp_qty:.8f}")
+        append_strategy_log(
+            self.strategy_id,
+            "info",
+            f"HTX earn hedge deployed earn={state.earn_qty:.8f} perp={state.perp_qty:.8f}",
+        )
         return self.get_status()
 
     def get_status(self) -> Dict[str, Any]:
@@ -170,6 +295,7 @@ class HtxEarnHedgeOrchestrator:
             "liq_price": liq,
             "dist_to_liq_pct": dist_pct,
             "last_error": state.last_error,
+            "deploy_step": (state.extra or {}).get("deploy_step"),
             "config": {
                 "spot_usdt": self.cfg.spot_usdt,
                 "perp_notional_usdt": self.cfg.perp_notional_usdt,
@@ -181,8 +307,8 @@ class HtxEarnHedgeOrchestrator:
     def _in_maintenance_hour(self) -> bool:
         return datetime.now(UTC8).hour in (0,)
 
-    def _wait_spot_available(self, spot: HtxClient, target: float) -> float:
-        deadline = time.time() + 1.2
+    def _wait_spot_available(self, spot: HtxClient, target: float, *, timeout_sec: float = 3.0) -> float:
+        deadline = time.time() + timeout_sec
         need = max(target * 0.99, self.cfg.min_sell_qty)
         while time.time() < deadline:
             avail = spot.get_spot_trade_balance(self.cfg.currency)
@@ -207,7 +333,8 @@ class HtxEarnHedgeOrchestrator:
             return False
         if not state.redeem_request_id:
             state.redeem_request_id = _new_request_id("redeem")
-        spot.earn_redeem(order_id=int(oid), amount=f"{qty:.8f}".rstrip("0").rstrip("."), request_id=state.redeem_request_id)
+        amt = HtxClient.format_earn_amount(qty, precision=8)
+        spot.earn_redeem(order_id=int(oid), amount=amt, request_id=state.redeem_request_id)
         state.redeem_sent = True
         state.earn_qty = qty
         state.earn_order_id = int(oid)
@@ -263,7 +390,7 @@ class HtxEarnHedgeOrchestrator:
             try:
                 spot.earn_redeem(
                     order_id=int(oid),
-                    amount=f"{earn:.8f}".rstrip("0").rstrip("."),
+                    amount=HtxClient.format_earn_amount(earn, precision=8),
                     request_id=_new_request_id("redeem-rec"),
                 )
             except Exception as exc:

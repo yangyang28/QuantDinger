@@ -134,6 +134,32 @@ class HtxClient(BaseRestClient):
             raise LiveTradingError(f"HTX spot error: {data}")
         return data if isinstance(data, dict) else {"raw": data}
 
+    @staticmethod
+    def _check_spot_api_response(data: Any, *, context: str) -> Dict[str, Any]:
+        if not isinstance(data, dict):
+            raise LiveTradingError(f"HTX {context}: invalid response")
+        if str(data.get("status") or "").lower() == "error":
+            raise LiveTradingError(f"HTX {context}: {data}")
+        code = data.get("code")
+        if code is not None:
+            try:
+                code_i = int(code)
+            except (TypeError, ValueError):
+                code_i = None
+            if code_i is not None and code_i not in (0, 200):
+                raise LiveTradingError(f"HTX {context}: {data}")
+        return data
+
+    @staticmethod
+    def format_earn_amount(qty: float, *, precision: int = 8) -> str:
+        """Floor to exchange precision; avoid oversubscribe due to rounding."""
+        d = Decimal(str(max(float(qty or 0), 0))).quantize(
+            Decimal("1").scaleb(-precision),
+            rounding=ROUND_DOWN,
+        )
+        text = format(d, "f").rstrip("0").rstrip(".")
+        return text or "0"
+
     def _spot_private_request(
         self,
         method: str,
@@ -141,19 +167,25 @@ class HtxClient(BaseRestClient):
         *,
         params: Optional[Dict[str, Any]] = None,
         json_body: Optional[Dict[str, Any]] = None,
+        context: str = "spot",
     ) -> Dict[str, Any]:
         signed_params = self._sign_params(method=method, base_url=self.spot_base_url, path=path, params=params or {})
         old_base = self.base_url
         self.base_url = self.spot_base_url
         try:
-            code, data, text = self._request(method, path, params=signed_params, json_body=json_body)
+            verb = str(method or "GET").upper()
+            if verb == "POST":
+                # HTX spot private POST: auth params in query string, business params in JSON body.
+                qs = urlencode(sorted((str(k), str(v)) for k, v in signed_params.items()))
+                req_path = f"{path}?{qs}" if qs else path
+                code, data, text = self._request("POST", req_path, json_body=json_body)
+            else:
+                code, data, text = self._request(verb, path, params=signed_params, json_body=json_body)
         finally:
             self.base_url = old_base
         if code >= 400:
-            raise LiveTradingError(f"HTX spot HTTP {code}: {text[:500]}")
-        if isinstance(data, dict) and str(data.get("status") or "").lower() == "error":
-            raise LiveTradingError(f"HTX spot error: {data}")
-        return data if isinstance(data, dict) else {"raw": data}
+            raise LiveTradingError(f"HTX {context} HTTP {code}: {text[:500]}")
+        return self._check_spot_api_response(data, context=context)
 
     def _swap_public_request(self, method: str, path: str, *, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         old_base = self.base_url
@@ -686,6 +718,40 @@ class HtxClient(BaseRestClient):
             raise last_err
         raise LiveTradingError("HTX order failed after V1 and V5 retries")
 
+    def spot_market_buy_usdt(
+        self,
+        *,
+        symbol: str,
+        usdt_amount: float,
+        client_order_id: Optional[str] = None,
+    ) -> LiveOrderResult:
+        """Spot market buy by quote (USDT) amount — matches HTX buy-market semantics."""
+        if self.market_type != "spot":
+            raise LiveTradingError("spot_market_buy_usdt requires spot client")
+        amount = float(usdt_amount or 0)
+        if amount <= 0:
+            raise LiveTradingError("Invalid USDT amount")
+        account_id = self._get_spot_account_id()
+        body = {
+            "account-id": account_id,
+            "symbol": to_htx_spot_symbol(symbol),
+            "type": "buy-market",
+            "amount": self.format_earn_amount(amount, precision=8),
+            "source": "spot-api",
+        }
+        formatted_client_order_id = self._format_spot_client_order_id(client_order_id)
+        if formatted_client_order_id:
+            body["client-order-id"] = formatted_client_order_id
+        raw = self._spot_private_request(
+            "POST",
+            "/v1/order/orders/place",
+            json_body=body,
+            context="spot buy",
+        )
+        data = raw.get("data")
+        oid = str(data or "")
+        return LiveOrderResult(exchange_id="htx", exchange_order_id=oid, filled=0.0, avg_price=0.0, raw=raw)
+
     def place_market_order(
         self,
         *,
@@ -697,31 +763,39 @@ class HtxClient(BaseRestClient):
         client_order_id: Optional[str] = None,
     ) -> LiveOrderResult:
         if self.market_type == "spot":
-            account_id = self._get_spot_account_id()
             sd = str(side or "").strip().lower()
             if sd not in ("buy", "sell"):
                 raise LiveTradingError(f"Invalid side: {side}")
             amount = float(qty or 0)
             if amount <= 0:
                 raise LiveTradingError("Invalid qty")
-            order_type = f"{sd}-market"
             if sd == "buy":
                 tick = self.get_ticker(symbol=symbol)
                 last = float(tick.get("close") or tick.get("price") or tick.get("lastPrice") or 0)
                 if last <= 0:
                     raise LiveTradingError("HTX spot market buy requires latest price for qty->value conversion")
-                amount = amount * last
+                return self.spot_market_buy_usdt(
+                    symbol=symbol,
+                    usdt_amount=amount * last,
+                    client_order_id=client_order_id,
+                )
+            account_id = self._get_spot_account_id()
             body = {
                 "account-id": account_id,
                 "symbol": to_htx_spot_symbol(symbol),
-                "type": order_type,
-                "amount": f"{amount:.12f}".rstrip("0").rstrip("."),
+                "type": "sell-market",
+                "amount": self.format_earn_amount(amount, precision=8),
                 "source": "spot-api",
             }
             formatted_client_order_id = self._format_spot_client_order_id(client_order_id)
             if formatted_client_order_id:
                 body["client-order-id"] = formatted_client_order_id
-            raw = self._spot_private_request("POST", "/v1/order/orders/place", json_body=body)
+            raw = self._spot_private_request(
+                "POST",
+                "/v1/order/orders/place",
+                json_body=body,
+                context="spot sell",
+            )
             data = raw.get("data")
             oid = str(data or "")
             return LiveOrderResult(exchange_id="htx", exchange_order_id=oid, filled=0.0, avg_price=0.0, raw=raw)
@@ -1000,11 +1074,26 @@ class HtxClient(BaseRestClient):
                 "pageNum": "1",
                 "pageSize": "20",
             },
+            context="earn project list",
         )
         data = raw.get("data") if isinstance(raw, dict) else {}
         items = (data.get("items") if isinstance(data, dict) else data) or []
         if isinstance(items, dict):
             items = items.get("items") or []
+        ccy = str(currency or "").upper()
+        flexible: List[Dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_ccy = str(item.get("currency") or item.get("coin") or "").upper()
+            if item_ccy and item_ccy != ccy:
+                continue
+            project_type = str(item.get("projectType") or item.get("type") or "0")
+            if project_type not in ("0", "demand", "flexible"):
+                continue
+            flexible.append(item)
+        if flexible:
+            return flexible[0]
         for item in items:
             if isinstance(item, dict):
                 return item
@@ -1027,11 +1116,30 @@ class HtxClient(BaseRestClient):
 
     def earn_subscribe(self, *, project_id: int, amount: str, request_id: str) -> Dict[str, Any]:
         body = {"id": int(project_id), "amount": str(amount), "requestId": str(request_id)}
-        return self._spot_private_request("POST", "/v1/earn/order/demand/add", json_body=body)
+        raw = self._spot_private_request(
+            "POST",
+            "/v1/earn/order/demand/add",
+            json_body=body,
+            context="earn subscribe",
+        )
+        payload = raw.get("data") if isinstance(raw, dict) else None
+        if isinstance(payload, dict):
+            ok_flag = payload.get("success")
+            if ok_flag is False:
+                raise LiveTradingError(f"HTX earn subscribe rejected: {raw}")
+        return raw
 
     def earn_redeem(self, *, order_id: int, amount: str, request_id: str) -> Dict[str, Any]:
         body = {"orderId": int(order_id), "amount": str(amount), "requestId": str(request_id)}
-        return self._spot_private_request("POST", "/v1/earn/order/demand/redeem-order", json_body=body)
+        return self._spot_private_request(
+            "POST",
+            "/v1/earn/order/demand/redeem-order",
+            json_body=body,
+            context="earn redeem",
+        )
+
+    def get_spot_usdt_trade_balance(self) -> float:
+        return self.get_spot_trade_balance("usdt")
 
     def earn_total_qty(self, currency: str) -> Tuple[float, Optional[int]]:
         total = 0.0
