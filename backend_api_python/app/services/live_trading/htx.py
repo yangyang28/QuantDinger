@@ -18,6 +18,8 @@ from decimal import Decimal, ROUND_DOWN
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode, urlparse
 
+import requests
+
 from app.services.live_trading.base import BaseRestClient, LiveOrderResult, LiveTradingError
 from app.services.live_trading import htx_v5
 from app.services.live_trading.symbols import to_htx_contract_code, to_htx_spot_symbol
@@ -33,12 +35,14 @@ class HtxClient(BaseRestClient):
         secret_key: str,
         base_url: str = "https://api.htx.com",
         futures_base_url: str = "https://api.hbdm.com",
-        timeout_sec: float = 15.0,
+        timeout_sec: float = 30.0,
         market_type: str = "swap",
         broker_id: str = "",
+        max_retries: int = 3,
     ):
         chosen_base = futures_base_url if str(market_type or "").strip().lower() == "swap" else base_url
         super().__init__(base_url=chosen_base, timeout_sec=timeout_sec)
+        self._max_retries = max(1, int(max_retries or 1))
         self.spot_base_url = (base_url or "https://api.htx.com").rstrip("/")
         self.futures_base_url = (futures_base_url or "https://api.hbdm.com").rstrip("/")
         self.api_key = (api_key or "").strip()
@@ -59,6 +63,47 @@ class HtxClient(BaseRestClient):
         self._v5_multi_asset_switch_tried: bool = False
         self._pos_mode_cache: Dict[str, Tuple[float, bool]] = {}
         self._pos_mode_cache_ttl_sec: float = 60.0
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        data: Optional[Any] = None,
+    ) -> Tuple[int, Dict[str, Any], str]:
+        """Retry transient HTX network timeouts (common from CN / Docker networks)."""
+        last_exc: Optional[Exception] = None
+        attempts = self._max_retries
+        for attempt in range(1, attempts + 1):
+            try:
+                return super()._request(
+                    method,
+                    path,
+                    params=params,
+                    json_body=json_body,
+                    headers=headers,
+                    data=data,
+                )
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                last_exc = exc
+                logger.warning(
+                    "HTX request timeout/conn attempt %s/%s %s %s: %s",
+                    attempt,
+                    attempts,
+                    method,
+                    path,
+                    exc,
+                )
+                if attempt >= attempts:
+                    break
+                time.sleep(min(0.5 * attempt, 2.0))
+        raise LiveTradingError(
+            f"HTX API unreachable (timeout/connection after {attempts} tries): {last_exc}. "
+            "Check server network to api.htx.com / api.hbdm.com, or set PROXY_URL / increase HTX_TIMEOUT_SEC."
+        )
 
     @staticmethod
     def _format_swap_client_order_id(client_order_id: Optional[str]) -> Optional[int]:

@@ -248,6 +248,23 @@ def create_client(exchange_config: Dict[str, Any], *, market_type: str = "swap")
         spot_url = _get(exchange_config, "base_url", "baseUrl") or "https://api.htx.com"
         futures_url = _get(exchange_config, "futures_base_url", "futuresBaseUrl") or "https://api.hbdm.com"
         broker_id = _get(exchange_config, "broker_id", "brokerId") or "AA7b890547"
+        try:
+            timeout_sec = float(
+                _get(exchange_config, "timeout_sec", "timeoutSec")
+                or os.environ.get("HTX_TIMEOUT_SEC")
+                or os.environ.get("LIVE_TRADING_TIMEOUT_SEC")
+                or 30
+            )
+        except (TypeError, ValueError):
+            timeout_sec = 30.0
+        try:
+            max_retries = int(
+                _get(exchange_config, "max_retries", "maxRetries")
+                or os.environ.get("HTX_MAX_RETRIES")
+                or 3
+            )
+        except (TypeError, ValueError):
+            max_retries = 3
         return HtxClient(
             api_key=api_key,
             secret_key=secret_key,
@@ -255,6 +272,8 @@ def create_client(exchange_config: Dict[str, Any], *, market_type: str = "swap")
             futures_base_url=futures_url,
             market_type=mt,
             broker_id=broker_id,
+            timeout_sec=max(10.0, timeout_sec),
+            max_retries=max(1, max_retries),
         )
 
     # Traditional brokers (IBKR for US stocks only)
