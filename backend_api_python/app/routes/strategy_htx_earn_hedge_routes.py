@@ -37,9 +37,16 @@ def _load_strategy(strategy_id: int, user_id: int, *, require_live: bool = False
 def _orch(st: dict) -> HtxEarnHedgeOrchestrator:
     tc = st.get("trading_config") if isinstance(st.get("trading_config"), dict) else {}
     ex = st.get("exchange_config") if isinstance(st.get("exchange_config"), dict) else {}
+    user_id = int(st.get("user_id") or g.user_id)
+    try:
+        from app.services.exchange_execution import resolve_exchange_config
+
+        ex = resolve_exchange_config(ex, user_id=user_id)
+    except Exception as exc:
+        logger.warning("htx-earn-hedge resolve exchange_config sid=%s: %s", st.get("id"), exc)
     return HtxEarnHedgeOrchestrator(
         strategy_id=int(st.get("id") or 0),
-        user_id=int(st.get("user_id") or g.user_id),
+        user_id=user_id,
         exchange_config=ex,
         trading_config=tc,
     )
