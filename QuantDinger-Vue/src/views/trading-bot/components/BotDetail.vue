@@ -1224,7 +1224,7 @@ export default {
       if (!this.isHtxEarnHedgeBot) return
       this.htxEarnHedgeTimer = setInterval(() => {
         this.refreshHtxEarnHedgeStatus(true)
-      }, 15000)
+      }, 30000)
     },
     stopHtxEarnHedgePolling () {
       if (this.htxEarnHedgeTimer) {

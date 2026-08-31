@@ -63,6 +63,35 @@ class HtxClient(BaseRestClient):
         self._v5_multi_asset_switch_tried: bool = False
         self._pos_mode_cache: Dict[str, Tuple[float, bool]] = {}
         self._pos_mode_cache_ttl_sec: float = 60.0
+        self._min_request_interval_sec: float = 0.2
+        self._last_request_ts: float = 0.0
+
+    def _pace_requests(self) -> None:
+        """Throttle HTX REST calls to reduce 429 请求频繁."""
+        gap = float(self._min_request_interval_sec or 0)
+        if gap <= 0:
+            return
+        now = time.time()
+        wait = (self._last_request_ts + gap) - now
+        if wait > 0:
+            time.sleep(wait)
+        self._last_request_ts = time.time()
+
+    @staticmethod
+    def _is_rate_limited(data: Any, http_code: int = 0) -> bool:
+        if int(http_code or 0) == 429:
+            return True
+        if not isinstance(data, dict):
+            return False
+        code = data.get("code")
+        try:
+            if int(code) == 429:
+                return True
+        except (TypeError, ValueError):
+            pass
+        msg = str(data.get("message") or data.get("err-msg") or data.get("err_msg") or "")
+        low = msg.lower()
+        return ("请求频繁" in msg) or ("too many" in low) or ("rate limit" in low) or ("ratelimit" in low)
 
     def _request(
         self,
@@ -79,6 +108,7 @@ class HtxClient(BaseRestClient):
         attempts = self._max_retries
         for attempt in range(1, attempts + 1):
             try:
+                self._pace_requests()
                 return super()._request(
                     method,
                     path,
@@ -214,23 +244,34 @@ class HtxClient(BaseRestClient):
         json_body: Optional[Dict[str, Any]] = None,
         context: str = "spot",
     ) -> Dict[str, Any]:
-        signed_params = self._sign_params(method=method, base_url=self.spot_base_url, path=path, params=params or {})
-        old_base = self.base_url
-        self.base_url = self.spot_base_url
-        try:
-            verb = str(method or "GET").upper()
-            if verb == "POST":
-                # HTX spot private POST: auth params in query string, business params in JSON body.
-                qs = urlencode(sorted((str(k), str(v)) for k, v in signed_params.items()))
-                req_path = f"{path}?{qs}" if qs else path
-                code, data, text = self._request("POST", req_path, json_body=json_body)
-            else:
-                code, data, text = self._request(verb, path, params=signed_params, json_body=json_body)
-        finally:
-            self.base_url = old_base
-        if code >= 400:
-            raise LiveTradingError(f"HTX {context} HTTP {code}: {text[:500]}")
-        return self._check_spot_api_response(data, context=context)
+        last_err: Optional[Exception] = None
+        for attempt in range(1, self._max_retries + 1):
+            signed_params = self._sign_params(method=method, base_url=self.spot_base_url, path=path, params=params or {})
+            old_base = self.base_url
+            self.base_url = self.spot_base_url
+            try:
+                verb = str(method or "GET").upper()
+                if verb == "POST":
+                    # HTX spot private POST: auth params in query string, business params in JSON body.
+                    qs = urlencode(sorted((str(k), str(v)) for k, v in signed_params.items()))
+                    req_path = f"{path}?{qs}" if qs else path
+                    code, data, text = self._request("POST", req_path, json_body=json_body)
+                else:
+                    code, data, text = self._request(verb, path, params=signed_params, json_body=json_body)
+            finally:
+                self.base_url = old_base
+            if code == 429 or self._is_rate_limited(data, code):
+                last_err = LiveTradingError(f"HTX {context}: rate limited (429) {data or text[:200]}")
+                sleep_s = min(2.0 * attempt, 8.0)
+                logger.warning("HTX spot rate limit attempt %s/%s %s; sleep %.1fs", attempt, self._max_retries, path, sleep_s)
+                if attempt >= self._max_retries:
+                    break
+                time.sleep(sleep_s)
+                continue
+            if code >= 400:
+                raise LiveTradingError(f"HTX {context} HTTP {code}: {text[:500]}")
+            return self._check_spot_api_response(data, context=context)
+        raise last_err or LiveTradingError(f"HTX {context}: rate limited")
 
     def _swap_public_request(self, method: str, path: str, *, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         old_base = self.base_url

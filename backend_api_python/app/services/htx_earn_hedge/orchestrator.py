@@ -151,6 +151,7 @@ class HtxEarnHedgeOrchestrator:
                 )
             except LiveTradingError as exc:
                 raise _deploy_step_error("spot_buy", exc) from exc
+            time.sleep(0.5)
             spot_avail = self._wait_spot_available(spot, max(expected_spot * 0.95, min_qty))
             if spot_avail < min_qty:
                 raise LiveTradingError(
@@ -274,14 +275,47 @@ class HtxEarnHedgeOrchestrator:
             swap = self._swap_client()
             ccy = state.currency or self.cfg.currency
             spot_avail = spot.get_spot_trade_balance(ccy)
+            time.sleep(0.15)
             earn_qty, _ = spot.earn_total_qty(ccy)
+            time.sleep(0.15)
             perp_qty = swap.swap_short_base_qty(symbol=self.cfg.symbol)
+            time.sleep(0.15)
             mark = float(swap.get_ticker(symbol=self.cfg.symbol).get("close") or 0)
             liq = swap.swap_liquidation_price(symbol=self.cfg.symbol)
             if liq > 0 and mark > 0:
                 dist_pct = _dist_to_liq_pct(mark, liq)
+            if state.last_error and "429" in state.last_error:
+                state.last_error = ""
+                self.repo.save(state)
         except Exception as exc:
-            state.last_error = str(exc)
+            msg = str(exc)
+            # Rate-limit: keep last known DB quantities, don't spam overwrite with 429 unless empty.
+            if "429" in msg or "请求频繁" in msg or "rate limit" in msg.lower():
+                logger.warning("htx_earn_hedge status rate-limited sid=%s: %s", self.strategy_id, msg)
+                state.last_error = msg
+                self.repo.save(state)
+                return {
+                    "fsm": state.fsm,
+                    "pre_redeemed": state.pre_redeemed,
+                    "deployed_at": state.deployed_at,
+                    "earn_order_id": state.earn_order_id,
+                    "earn_qty": state.earn_qty,
+                    "spot_avail": 0.0,
+                    "perp_qty": state.perp_qty,
+                    "mark": 0.0,
+                    "liq_price": 0.0,
+                    "dist_to_liq_pct": None,
+                    "last_error": state.last_error,
+                    "deploy_step": (state.extra or {}).get("deploy_step"),
+                    "config": {
+                        "spot_usdt": self.cfg.spot_usdt,
+                        "perp_notional_usdt": self.cfg.perp_notional_usdt,
+                        "leverage": self.cfg.leverage,
+                        "pre_redeem_pct": self.cfg.pre_redeem_pct,
+                    },
+                    "rate_limited": True,
+                }
+            state.last_error = msg
             self.repo.save(state)
         return {
             "fsm": state.fsm,
@@ -314,7 +348,8 @@ class HtxEarnHedgeOrchestrator:
             avail = spot.get_spot_trade_balance(self.cfg.currency)
             if avail >= need:
                 return avail
-            time.sleep(0.08)
+            # Avoid HTX 429: do not poll balance every ~80ms.
+            time.sleep(0.45)
         return spot.get_spot_trade_balance(self.cfg.currency)
 
     def _start_redeem(self, spot: HtxClient, state: HtxEarnHedgeState) -> bool:
