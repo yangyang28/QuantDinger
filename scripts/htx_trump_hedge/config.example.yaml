@@ -8,8 +8,8 @@ htx:
 strategy:
   spot_symbol: trumpusdt          # HTX spot symbol (lowercase, no slash)
   swap_symbol: TRUMP-USDT         # linear swap contract code
-  spot_usdt: 200                  # USDT notional for spot leg
-  perp_notional_usdt: 100         # target short notional
+  spot_usdt: 2000                 # USDT notional for spot leg
+  perp_notional_usdt: 2000        # short notional (= margin 1000U × leverage 2)
   leverage: 2
   currency: trump                 # base asset for earn / balance
 

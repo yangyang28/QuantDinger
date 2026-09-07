@@ -960,8 +960,8 @@ class StrategyService:
             ]
         elif bot_type == 'htx_earn_hedge':
             display['strategy_params'] = [
-                self._display_item('spotUsdt', 'trading-bot.htxEarnHedge.spotUsdt', self._to_float(tc.get('spot_usdt'), 200.0), 'usdt'),
-                self._display_item('perpNotionalUsdt', 'trading-bot.htxEarnHedge.perpNotionalUsdt', self._to_float(tc.get('perp_notional_usdt'), 100.0), 'usdt'),
+                self._display_item('spotUsdt', 'trading-bot.htxEarnHedge.spotUsdt', self._to_float(tc.get('spot_usdt'), 2000.0), 'usdt'),
+                self._display_item('perpNotionalUsdt', 'trading-bot.htxEarnHedge.perpNotionalUsdt', self._to_float(tc.get('perp_notional_usdt'), 2000.0), 'usdt'),
                 self._display_item('leverage', 'trading-bot.htxEarnHedge.leverage', self._to_int(tc.get('leverage'), 2), 'number'),
                 self._display_item('preRedeemPct', 'trading-bot.htxEarnHedge.preRedeemPct', self._to_float(tc.get('pre_redeem_pct'), 0.005) * 100, 'percent'),
                 self._display_item('tickIntervalSec', 'trading-bot.htxEarnHedge.tickIntervalSec', self._to_int(tc.get('tick_interval_sec'), 10), 'number'),

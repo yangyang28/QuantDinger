@@ -269,6 +269,7 @@ const locale = {
   'trading-bot.htxEarnHedge.configHint': 'Buy spot, stake 100% in HTX flexible earn, open perp short; exit on liquidation path.',
   'trading-bot.htxEarnHedge.spotUsdt': 'Spot buy (USDT)',
   'trading-bot.htxEarnHedge.perpNotionalUsdt': 'Perp short notional (USDT)',
+  'trading-bot.htxEarnHedge.perpNotionalUsdtHint': 'Notional ≈ margin × leverage; e.g. 1000U margin × 2x = 2000U notional',
   'trading-bot.htxEarnHedge.leverage': 'Leverage',
   'trading-bot.htxEarnHedge.preRedeemPct': 'Pre-redeem vs liq',
   'trading-bot.htxEarnHedge.preRedeemPctHint': 'Redeem 100% when mark is within this distance of liq price',

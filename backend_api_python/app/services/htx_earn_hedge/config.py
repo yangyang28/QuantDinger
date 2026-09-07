@@ -44,8 +44,9 @@ def parse_htx_earn_hedge_config(trading_config: Dict[str, Any]) -> HtxEarnHedgeC
         currency=currency,
         spot_symbol=str(tc.get("spot_symbol") or to_htx_spot_symbol(symbol)),
         swap_symbol=str(tc.get("swap_symbol") or to_htx_contract_code(symbol)),
-        spot_usdt=float(tc.get("spot_usdt") or tc.get("spot_notional_usdt") or 200),
-        perp_notional_usdt=float(tc.get("perp_notional_usdt") or tc.get("perp_usdt") or 100),
+        # Defaults: spot 2000U; perp margin 1000U × 2x leverage → notional 2000U
+        spot_usdt=float(tc.get("spot_usdt") or tc.get("spot_notional_usdt") or 2000),
+        perp_notional_usdt=float(tc.get("perp_notional_usdt") or tc.get("perp_usdt") or 2000),
         leverage=max(1, int(float(tc.get("leverage") or 2))),
         pre_redeem_pct=float(tc.get("pre_redeem_pct") or 0.005),
         emergency_redeem_pct=float(tc.get("emergency_redeem_pct") or 0.0025),

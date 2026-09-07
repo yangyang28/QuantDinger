@@ -29,6 +29,7 @@
         style="width: 100%"
         @change="emit"
       />
+      <div class="field-hint">{{ $t('trading-bot.htxEarnHedge.perpNotionalUsdtHint') }}</div>
     </a-form-model-item>
     <a-form-model-item :label="$t('trading-bot.htxEarnHedge.leverage')" prop="leverage">
       <a-input-number
@@ -78,8 +79,9 @@ export default {
   data () {
     return {
       form: {
-        spotUsdt: this.value.spotUsdt != null ? this.value.spotUsdt : 200,
-        perpNotionalUsdt: this.value.perpNotionalUsdt != null ? this.value.perpNotionalUsdt : 100,
+        // spot 2000U; perp 1000U margin × 2x → notional 2000U
+        spotUsdt: this.value.spotUsdt != null ? this.value.spotUsdt : 2000,
+        perpNotionalUsdt: this.value.perpNotionalUsdt != null ? this.value.perpNotionalUsdt : 2000,
         leverage: this.value.leverage != null ? this.value.leverage : 2,
         preRedeemPct: this.value.preRedeemPct != null ? this.value.preRedeemPct : 0.5,
         tickIntervalSec: this.value.tickIntervalSec != null ? this.value.tickIntervalSec : 10

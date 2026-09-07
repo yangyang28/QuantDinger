@@ -7,8 +7,8 @@ from app.services.live_trading.htx import HtxClient
 def test_parse_htx_earn_hedge_config_defaults():
     cfg = parse_htx_earn_hedge_config({"symbol": "TRUMP/USDT", "bot_type": "htx_earn_hedge"})
     assert cfg.currency == "trump"
-    assert cfg.spot_usdt == 200
-    assert cfg.perp_notional_usdt == 100
+    assert cfg.spot_usdt == 2000
+    assert cfg.perp_notional_usdt == 2000
     assert cfg.leverage == 2
     assert cfg.pre_redeem_pct == 0.005
     assert cfg.tick_interval_sec == 10

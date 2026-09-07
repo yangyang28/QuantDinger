@@ -284,6 +284,7 @@ const locale = {
   'trading-bot.htxEarnHedge.configHint': '现货买入后 100% 申购 HTX 活期赚币，并开永续空单；不挂止损，由强平触发退出。',
   'trading-bot.htxEarnHedge.spotUsdt': '现货买入 (USDT)',
   'trading-bot.htxEarnHedge.perpNotionalUsdt': '永续空名义 (USDT)',
+  'trading-bot.htxEarnHedge.perpNotionalUsdtHint': '名义 ≈ 保证金 × 杠杆；例：1000U 保证金 × 2 倍 = 名义 2000U',
   'trading-bot.htxEarnHedge.leverage': '合约杠杆',
   'trading-bot.htxEarnHedge.preRedeemPct': '预赎回距强平',
   'trading-bot.htxEarnHedge.preRedeemPctHint': 'mark 距强平价 ≤ 此值时 100% 赎回活期',
