@@ -45,6 +45,9 @@ const api = {
   hedgeArbExit: '/api/strategies/hedge-arb/exit',
   hedgeArbRebalance: '/api/strategies/hedge-arb/rebalance',
   hedgeArbBacktest: '/api/strategies/hedge-arb/backtest',
+  aiAutoStatus: '/api/strategies/ai-auto/status',
+  aiAutoTick: '/api/strategies/ai-auto/tick',
+  aiAutoKill: '/api/strategies/ai-auto/kill',
   htxEarnHedgeStatus: '/api/strategies/htx-earn-hedge/status',
   htxEarnHedgeDeploy: '/api/strategies/htx-earn-hedge/deploy',
   htxEarnHedgeEmergencyExit: '/api/strategies/htx-earn-hedge/emergency-exit'
@@ -405,6 +408,30 @@ export function hedgeArbBacktest (payload) {
     url: api.hedgeArbBacktest,
     method: 'post',
     data: payload || {}
+  })
+}
+
+export function getAiAutoStatus (id) {
+  return request({
+    url: api.aiAutoStatus,
+    method: 'get',
+    params: { id }
+  })
+}
+
+export function aiAutoTick (id, forceRegime = false) {
+  return request({
+    url: api.aiAutoTick,
+    method: 'post',
+    data: { id, strategy_id: id, force_regime: !!forceRegime }
+  })
+}
+
+export function aiAutoKill (id, enabled = true) {
+  return request({
+    url: api.aiAutoKill,
+    method: 'post',
+    data: { id, strategy_id: id, enabled: !!enabled }
   })
 }
 

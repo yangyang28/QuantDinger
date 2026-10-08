@@ -192,6 +192,89 @@
     </a-card>
 
     <a-card
+      v-if="isAiAutoBot"
+      :bordered="false"
+      class="hedge-summary-card"
+      style="margin-top: 12px;"
+    >
+      <div class="hedge-summary">
+        <div class="hedge-summary__header">
+          <div class="hedge-summary__title">
+            <span class="hedge-summary__icon">
+              <a-icon type="robot" />
+            </span>
+            <div class="hedge-summary__title-text">
+              <span class="hedge-summary__name">{{ $t('trading-bot.aiAuto.panelTitle') }}</span>
+              <a-tooltip :title="$t('trading-bot.aiAuto.panelHint')">
+                <a-icon type="question-circle" class="hedge-summary__tip" />
+              </a-tooltip>
+            </div>
+          </div>
+          <div class="hedge-arb-actions">
+            <a-button
+              size="small"
+              class="hedge-summary__refresh"
+              @click="refreshAiAutoStatus"
+              :loading="aiAutoLoading"
+            >
+              <a-icon type="reload" />
+            </a-button>
+            <a-button
+              size="small"
+              :loading="aiAutoActionLoading"
+              @click="handleAiAutoTick"
+            >
+              {{ $t('trading-bot.aiAuto.actionTick') }}
+            </a-button>
+            <a-button
+              size="small"
+              type="danger"
+              :loading="aiAutoActionLoading"
+              @click="handleAiAutoKill(true)"
+            >
+              {{ $t('trading-bot.aiAuto.actionKill') }}
+            </a-button>
+            <a-button
+              size="small"
+              :loading="aiAutoActionLoading"
+              @click="handleAiAutoKill(false)"
+            >
+              {{ $t('trading-bot.aiAuto.actionResume') }}
+            </a-button>
+          </div>
+        </div>
+        <div class="hedge-summary__grid hedge-arb-grid">
+          <div class="hedge-stat">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-bot.aiAuto.regime') }}</span>
+            </div>
+            <div class="hedge-stat__value">{{ aiAutoRegime }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-bot.aiAuto.humanMode') }}</span>
+            </div>
+            <div class="hedge-stat__value">{{ aiAutoHumanMode }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-assistant.detail.status') }}</span>
+            </div>
+            <div class="hedge-stat__value">{{ aiAutoStatusLabel }}</div>
+          </div>
+          <div class="hedge-stat hedge-stat--long">
+            <div class="hedge-stat__head">
+              <span class="hedge-stat__label">{{ $t('trading-bot.aiAuto.rationale') }}</span>
+            </div>
+            <div class="hedge-stat__value" style="font-size: 12px; line-height: 1.4;">
+              {{ aiAutoRationale || '—' }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </a-card>
+
+    <a-card
       v-if="isHedgeArbBot"
       :bordered="false"
       class="hedge-summary-card"
@@ -634,7 +717,7 @@ import PositionRecords from '@/views/trading-assistant/components/PositionRecord
 import PerformanceAnalysis from '@/views/trading-assistant/components/PerformanceAnalysis.vue'
 import StrategyReviewReport from '@/views/trading-assistant/components/StrategyReviewReport.vue'
 import StrategyLogs from '@/views/trading-assistant/components/StrategyLogs.vue'
-import { getStrategyPositions, getStrategyTrades, getGridRestingOrders, getHedgeArbStatus, hedgeArbEnter, hedgeArbExit, hedgeArbRebalance, hedgeArbBacktest, getHtxEarnHedgeStatus, htxEarnHedgeDeploy, htxEarnHedgeEmergencyExit } from '@/api/strategy'
+import { getStrategyPositions, getStrategyTrades, getGridRestingOrders, getHedgeArbStatus, hedgeArbEnter, hedgeArbExit, hedgeArbRebalance, hedgeArbBacktest, getHtxEarnHedgeStatus, htxEarnHedgeDeploy, htxEarnHedgeEmergencyExit, getAiAutoStatus, aiAutoTick, aiAutoKill } from '@/api/strategy'
 
 const TYPE_META = {
   grid: { icon: 'bar-chart', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
@@ -643,6 +726,7 @@ const TYPE_META = {
   dca: { icon: 'fund', gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
   arbitrage: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   hedge_arb: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
+  ai_auto: { icon: 'robot', gradient: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 55%, #a855f7 100%)' },
   htx_earn_hedge: { icon: 'bank', gradient: 'linear-gradient(135deg, #ff6a88 0%, #ff99ac 100%)' },
   custom: { icon: 'code', gradient: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' }
 }
@@ -727,7 +811,11 @@ export default {
       htxEarnHedgeStatus: {},
       htxEarnHedgeLoading: false,
       htxEarnHedgeTimer: null,
-      htxEarnHedgeActionLoading: false
+      htxEarnHedgeActionLoading: false,
+      aiAutoStatus: {},
+      aiAutoLoading: false,
+      aiAutoTimer: null,
+      aiAutoActionLoading: false
     }
   },
   computed: {
@@ -832,9 +920,37 @@ export default {
       const bt = this.bot?.bot_type || this.tc.bot_type
       return bt === 'hedge_arb'
     },
+    isAiAutoBot () {
+      const bt = this.bot?.bot_type || this.tc.bot_type
+      return bt === 'ai_auto'
+    },
     isHtxEarnHedgeBot () {
       const bt = this.bot?.bot_type || this.tc.bot_type
       return bt === 'htx_earn_hedge'
+    },
+    aiAutoRegime () {
+      return this.aiAutoStatus?.state?.regime || this.aiAutoStatus?.regime?.regime || '—'
+    },
+    aiAutoHumanMode () {
+      return this.aiAutoStatus?.state?.human_mode || this.tc.human_mode || this.botParams.humanMode || 'observe'
+    },
+    aiAutoStatusLabel () {
+      const st = String(this.aiAutoStatus?.state?.status || 'idle').toLowerCase()
+      const map = {
+        idle: this.$t('trading-bot.aiAuto.statusIdle'),
+        running: this.$t('trading-bot.aiAuto.statusRunning'),
+        risk_off: this.$t('trading-bot.aiAuto.statusRiskOff'),
+        killed: this.$t('trading-bot.aiAuto.statusKilled'),
+        error: this.$t('trading-bot.aiAuto.statusError')
+      }
+      return map[st] || st
+    },
+    aiAutoRationale () {
+      return (
+        this.aiAutoStatus?.state?.last_regime_json?.rationale_zh ||
+        this.aiAutoStatus?.regime?.rationale_zh ||
+        ''
+      )
     },
     isHtxEarnHedgeLive () {
       const mode = String(this.bot?.execution_mode || this.tc.execution_mode || '').toLowerCase()
@@ -928,7 +1044,7 @@ export default {
       const tc = this.tc || {}
       const override = tc.tick_interval_sec
       if (override != null && override !== '') return `${override}s`
-      if (this.isHedgeArbBot) return '300s'
+      if (this.isHedgeArbBot || this.isAiAutoBot) return '300s'
       // Backend default: 1s for grid/dca, 10s otherwise (see trading_executor.py).
       return this.isGridLikeBot ? '1s' : '10s'
     },
@@ -950,6 +1066,7 @@ export default {
       handler (id) {
         this.stopHedgePolling()
         this.stopHedgeArbPolling()
+        this.stopAiAutoPolling()
         this.stopHtxEarnHedgePolling()
         this.stopRestingPolling()
         if (id && this.isGridLikeBot) {
@@ -959,6 +1076,10 @@ export default {
         if (id && this.isHedgeArbBot) {
           this.refreshHedgeArbStatus()
           this.startHedgeArbPolling()
+        }
+        if (id && this.isAiAutoBot) {
+          this.refreshAiAutoStatus()
+          this.startAiAutoPolling()
         }
         if (id && this.isHtxEarnHedgeBot) {
           this.refreshHtxEarnHedgeStatus()
@@ -995,6 +1116,15 @@ export default {
         }
       }
     },
+    isAiAutoBot: {
+      handler (val) {
+        this.stopAiAutoPolling()
+        if (val && this.bot?.id) {
+          this.refreshAiAutoStatus()
+          this.startAiAutoPolling()
+        }
+      }
+    },
     isHtxEarnHedgeBot: {
       handler (val) {
         this.stopHtxEarnHedgePolling()
@@ -1011,6 +1141,7 @@ export default {
   beforeDestroy () {
     this.stopHedgePolling()
     this.stopHedgeArbPolling()
+    this.stopAiAutoPolling()
     this.stopHtxEarnHedgePolling()
     this.stopRestingPolling()
   },
@@ -1123,6 +1254,70 @@ export default {
         }
       } finally {
         if (!silent) this.hedgeArbLoading = false
+      }
+    },
+    startAiAutoPolling () {
+      this.stopAiAutoPolling()
+      if (!this.isAiAutoBot) return
+      this.aiAutoTimer = setInterval(() => {
+        this.refreshAiAutoStatus(true)
+      }, 15000)
+    },
+    stopAiAutoPolling () {
+      if (this.aiAutoTimer) {
+        clearInterval(this.aiAutoTimer)
+        this.aiAutoTimer = null
+      }
+    },
+    async refreshAiAutoStatus (silent = false) {
+      if (!this.bot?.id || !this.isAiAutoBot) return
+      if (!silent) this.aiAutoLoading = true
+      try {
+        const res = await getAiAutoStatus(this.bot.id)
+        if (res && res.code === 1) {
+          this.aiAutoStatus = res.data || {}
+        }
+      } finally {
+        if (!silent) this.aiAutoLoading = false
+      }
+    },
+    async handleAiAutoTick () {
+      if (!this.bot?.id) return
+      this.aiAutoActionLoading = true
+      try {
+        const res = await aiAutoTick(this.bot.id, true)
+        if (res && res.code === 1) {
+          this.aiAutoStatus = { ...(this.aiAutoStatus || {}), ...(res.data || {}) }
+          this.$message.success(this.$t('trading-bot.aiAuto.tickSuccess'))
+        } else {
+          this.$message.error((res && res.msg) || this.$t('trading-bot.aiAuto.tickFail'))
+        }
+      } catch (e) {
+        this.$message.error(e.message || this.$t('trading-bot.aiAuto.tickFail'))
+      } finally {
+        this.aiAutoActionLoading = false
+        this.refreshAiAutoStatus(true)
+      }
+    },
+    async handleAiAutoKill (enabled) {
+      if (!this.bot?.id) return
+      this.aiAutoActionLoading = true
+      try {
+        const res = await aiAutoKill(this.bot.id, enabled)
+        if (res && res.code === 1) {
+          this.$message.success(
+            enabled
+              ? this.$t('trading-bot.aiAuto.killSuccess')
+              : this.$t('trading-bot.aiAuto.resumeSuccess')
+          )
+        } else {
+          this.$message.error((res && res.msg) || this.$t('trading-bot.aiAuto.killFail'))
+        }
+      } catch (e) {
+        this.$message.error(e.message || this.$t('trading-bot.aiAuto.killFail'))
+      } finally {
+        this.aiAutoActionLoading = false
+        this.refreshAiAutoStatus(true)
       }
     },
     formatFundingRate (v) {

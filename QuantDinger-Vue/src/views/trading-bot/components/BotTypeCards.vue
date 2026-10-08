@@ -116,6 +116,16 @@ export default {
           scene: this.$t('trading-bot.scene.funding')
         },
         {
+          key: 'ai_auto',
+          name: this.$t('trading-bot.type.ai_auto'),
+          desc: this.$t('trading-bot.type.ai_autoDesc'),
+          icon: 'robot',
+          gradient: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 55%, #a855f7 100%)',
+          riskLabel: this.$t('trading-bot.risk.medium'),
+          riskClass: 'medium',
+          scene: this.$t('trading-bot.scene.aiAuto')
+        },
+        {
           key: 'htx_earn_hedge',
           name: this.$t('trading-bot.type.htx_earn_hedge'),
           desc: this.$t('trading-bot.type.htx_earn_hedgeDesc'),

@@ -509,6 +509,7 @@ import TrendConfig from './configs/TrendConfig.vue'
 import DCAConfig from './configs/DCAConfig.vue'
 import HedgeArbConfig from './configs/HedgeArbConfig.vue'
 import HtxEarnHedgeConfig from './configs/HtxEarnHedgeConfig.vue'
+import AiAutoConfig from './configs/AiAutoConfig.vue'
 import { formatPercentDisplay, ratioOrPercentToUiPercent } from '@/utils/numberFormat'
 
 const BOT_TYPE_MAP = {
@@ -536,6 +537,11 @@ const BOT_TYPE_MAP = {
     icon: 'swap',
     gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
     component: 'HedgeArbConfig'
+  },
+  ai_auto: {
+    icon: 'robot',
+    gradient: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 55%, #a855f7 100%)',
+    component: 'AiAutoConfig'
   },
   htx_earn_hedge: {
     icon: 'bank',
@@ -571,7 +577,7 @@ function isHtxEarnHedgeExchangeSupported (exchangeId) {
 
 export default {
   name: 'BotCreateWizard',
-  components: { GridConfig, MartingaleConfig, TrendConfig, DCAConfig, HedgeArbConfig, HtxEarnHedgeConfig },
+  components: { GridConfig, MartingaleConfig, TrendConfig, DCAConfig, HedgeArbConfig, AiAutoConfig, HtxEarnHedgeConfig },
   props: {
     botType: { type: String, required: true },
     aiPreset: { type: Object, default: null },
@@ -821,14 +827,17 @@ export default {
     isHedgeArbBot () {
       return this.botType === 'hedge_arb'
     },
+    isAiAutoBot () {
+      return this.botType === 'ai_auto'
+    },
     isHtxEarnHedgeBot () {
       return this.botType === 'htx_earn_hedge'
     },
     isOrchestratorHedgeBot () {
-      return this.isHedgeArbBot || this.isHtxEarnHedgeBot
+      return this.isHedgeArbBot || this.isHtxEarnHedgeBot || this.isAiAutoBot
     },
     hedgeArbExchangeSupported () {
-      if (!this.isHedgeArbBot) return true
+      if (!this.isHedgeArbBot && !this.isAiAutoBot) return true
       return isHedgeArbExchangeSupported(this.currentExchangeId)
     },
     htxEarnHedgeExchangeSupported () {
@@ -990,6 +999,11 @@ export default {
       this.baseForm.marketType = 'swap'
       this.baseForm.leverage = 1
     }
+    if (this.botType === 'ai_auto' && !this.editBot) {
+      this.baseForm.marketCategory = 'Crypto'
+      this.baseForm.marketType = 'swap'
+      this.baseForm.leverage = 1
+    }
     if (this.botType === 'htx_earn_hedge' && !this.editBot) {
       this.baseForm.marketCategory = 'Crypto'
       this.baseForm.marketType = 'swap'
@@ -1074,8 +1088,19 @@ export default {
         exitFundingRate: this.$t('trading-bot.hedgeArb.exitFundingRate'),
         maxBasisPct: this.$t('trading-bot.hedgeArb.maxBasisPct'),
         rebalanceThresholdPct: this.$t('trading-bot.hedgeArb.rebalanceThresholdPct'),
-        tickIntervalSec: this.$t('trading-bot.hedgeArb.tickIntervalSec'),
+        tickIntervalSec: this.isAiAutoBot
+          ? this.$t('trading-bot.aiAuto.tickIntervalSec')
+          : this.$t('trading-bot.hedgeArb.tickIntervalSec'),
         maxHoldHours: this.$t('trading-bot.hedgeArb.maxHoldHours'),
+        humanMode: this.$t('trading-bot.aiAuto.humanMode'),
+        useLlm: this.$t('trading-bot.aiAuto.useLlm'),
+        enableFundingArb: this.$t('trading-bot.aiAuto.enableFundingArb'),
+        enableOpportunity: this.$t('trading-bot.aiAuto.enableOpportunity'),
+        enableGrid: this.$t('trading-bot.aiAuto.enableGrid'),
+        gridSimOnly: this.$t('trading-bot.aiAuto.gridSimOnly'),
+        fundingNotionalUsdt: this.$t('trading-bot.aiAuto.fundingNotionalUsdt'),
+        maxDailyLossPct: this.$t('trading-bot.aiAuto.maxDailyLossPct'),
+        regimeRefreshSec: this.$t('trading-bot.aiAuto.regimeRefreshSec'),
         spotUsdt: this.$t('trading-bot.htxEarnHedge.spotUsdt'),
         perpNotionalUsdt: this.$t('trading-bot.htxEarnHedge.perpNotionalUsdt'),
         preRedeemPct: this.$t('trading-bot.htxEarnHedge.preRedeemPct'),
@@ -1241,6 +1266,22 @@ export default {
           rebalanceThresholdPct: ratioOrPercentToUiPercent(tc.rebalance_threshold_pct ?? tc.bot_params?.rebalanceThresholdPct ?? 0.02, 2),
           tickIntervalSec: tc.tick_interval_sec ?? tc.bot_params?.tickIntervalSec ?? 300,
           maxHoldHours: tc.max_hold_hours ?? tc.bot_params?.maxHoldHours ?? 0
+        }
+      } else if (this.botType === 'ai_auto') {
+        this.baseForm.marketCategory = 'Crypto'
+        this.baseForm.marketType = 'swap'
+        this.baseForm.leverage = 1
+        this.strategyParams = {
+          humanMode: tc.human_mode ?? tc.bot_params?.humanMode ?? 'observe',
+          useLlm: tc.use_llm ?? tc.bot_params?.useLlm ?? true,
+          enableFundingArb: tc.enable_funding_arb ?? tc.bot_params?.enableFundingArb ?? true,
+          enableOpportunity: tc.enable_opportunity ?? tc.bot_params?.enableOpportunity ?? true,
+          enableGrid: tc.enable_grid ?? tc.bot_params?.enableGrid ?? true,
+          gridSimOnly: tc.grid_sim_only ?? tc.bot_params?.gridSimOnly ?? true,
+          fundingNotionalUsdt: tc.funding_notional_usdt ?? tc.notional_usdt ?? tc.bot_params?.fundingNotionalUsdt ?? 0,
+          maxDailyLossPct: ratioOrPercentToUiPercent(tc.max_daily_loss_pct ?? tc.bot_params?.maxDailyLossPct ?? 0.03, 2),
+          tickIntervalSec: tc.tick_interval_sec ?? tc.bot_params?.tickIntervalSec ?? 300,
+          regimeRefreshSec: tc.regime_refresh_sec ?? tc.bot_params?.regimeRefreshSec ?? 900
         }
       } else if (tc.bot_params && typeof tc.bot_params === 'object') {
         this.strategyParams = this.normalizeStrategyParams({ ...tc.bot_params })
@@ -1540,7 +1581,7 @@ export default {
       let marketType = isStockMarket ? 'spot' : this.baseForm.marketType
       let leverage = marketType === 'spot' ? 1 : (this.baseForm.leverage || 5)
       let tradeDirection = isStockMarket ? 'long' : this.resolveTradeDirection(strategyParams)
-      if (this.isHedgeArbBot) {
+      if (this.isHedgeArbBot || this.isAiAutoBot) {
         marketType = 'swap'
         leverage = 1
         tradeDirection = 'long'
@@ -1566,7 +1607,7 @@ export default {
           this.$t('trading-bot.wizard.botTypeNotSupportedOnMarket', { market: this.currentMarketLabel })
         )
       }
-      if (this.isHedgeArbBot && !isHedgeArbExchangeSupported(exId)) {
+      if ((this.isHedgeArbBot || this.isAiAutoBot) && !isHedgeArbExchangeSupported(exId)) {
         throw new Error(this.$t('trading-bot.hedgeArb.exchangeNotSupported'))
       }
 
@@ -1595,6 +1636,25 @@ export default {
         hedgeArbExtras.order_mode = 'market'
       }
 
+      const aiAutoExtras = {}
+      if (this.isAiAutoBot) {
+        const p = strategyParams
+        const sym = this.baseForm.symbol
+        aiAutoExtras.human_mode = p.humanMode || 'observe'
+        aiAutoExtras.use_llm = !!p.useLlm
+        aiAutoExtras.enable_funding_arb = !!p.enableFundingArb
+        aiAutoExtras.enable_opportunity = !!p.enableOpportunity
+        aiAutoExtras.enable_grid = !!p.enableGrid
+        aiAutoExtras.grid_sim_only = p.gridSimOnly !== false
+        aiAutoExtras.funding_notional_usdt = p.fundingNotionalUsdt || 0
+        aiAutoExtras.notional_usdt = p.fundingNotionalUsdt || 0
+        aiAutoExtras.max_daily_loss_pct = (p.maxDailyLossPct || 3) / 100
+        aiAutoExtras.tick_interval_sec = p.tickIntervalSec || 300
+        aiAutoExtras.regime_refresh_sec = p.regimeRefreshSec || 900
+        aiAutoExtras.symbols = [sym]
+        aiAutoExtras.order_mode = 'market'
+      }
+
       const htxEarnExtras = {}
       if (this.isHtxEarnHedgeBot) {
         const p = strategyParams
@@ -1606,7 +1666,9 @@ export default {
         htxEarnExtras.order_mode = 'market'
       }
 
-      const hedgeArbOrderMode = this.isHedgeArbBot ? 'market' : (this.isHtxEarnHedgeBot ? 'market' : null)
+      const hedgeArbOrderMode = (this.isHedgeArbBot || this.isAiAutoBot)
+        ? 'market'
+        : (this.isHtxEarnHedgeBot ? 'market' : null)
 
       return {
         strategy_name: this.baseForm.botName,
@@ -1633,6 +1695,7 @@ export default {
           bot_type: this.botType,
           bot_params: strategyParams,
           ...hedgeArbExtras,
+          ...aiAutoExtras,
           ...htxEarnExtras,
           // Grid-only knobs — backend ignores them for trend/martingale, and
           // sending them as undefined would override the server-side default

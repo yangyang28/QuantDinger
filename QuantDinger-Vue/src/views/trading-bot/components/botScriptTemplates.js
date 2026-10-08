@@ -460,6 +460,16 @@ def on_bar(ctx, bar):
     pass
 `,
 
+  ai_auto: () => `# ---- AI Auto Trading (regime JSON + rule engines) ----
+
+def on_init(ctx):
+    ctx.log("ai_auto: LLM regime + funding/opportunity/grid engines; AI never places orders")
+
+
+def on_bar(ctx, bar):
+    pass
+`,
+
   htx_earn_hedge: () => `# ---- HTX Earn + Short Hedge (orchestrator-driven) ----
 
 def on_init(ctx):
