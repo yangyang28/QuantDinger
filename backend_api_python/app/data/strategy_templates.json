@@ -194,6 +194,34 @@
     "tags": ["hedge", "funding", "arbitrage", "advanced"]
   },
   {
+    "key": "ai_auto",
+    "name": "AI 自动交易（四维研判）",
+    "name_en": "AI Auto Trading",
+    "description": "LLM 输出 Regime JSON（技术/消息/事件/情绪），规则引擎调度费率套利 / 机会单 / 网格；AI 不下单。默认观察模式。",
+    "description_en": "LLM produces regime JSON from four dimensions; rule engines run funding arb / opportunity / grid. AI never places orders. Default observe mode.",
+    "category": "ai",
+    "difficulty": "advanced",
+    "markets": ["Crypto"],
+    "default_params": {
+      "bot_type": "ai_auto",
+      "symbol": "BTC/USDT",
+      "symbols": ["BTC/USDT"],
+      "human_mode": "observe",
+      "use_llm": true,
+      "enable_funding_arb": true,
+      "enable_opportunity": true,
+      "enable_grid": true,
+      "grid_sim_only": true,
+      "funding_notional_usdt": 0,
+      "max_daily_loss_pct": 0.03,
+      "max_single_risk_pct": 0.01,
+      "tick_interval_sec": 300,
+      "regime_refresh_sec": 900,
+      "timeframe": "1H"
+    },
+    "tags": ["ai", "regime", "funding", "grid", "opportunity", "advanced"]
+  },
+  {
     "key": "momentum_rotation",
     "name": "动量轮动",
     "name_en": "Momentum Rotation",

@@ -1092,8 +1092,8 @@ class TradingExecutor:
         return str((trading_config or {}).get("bot_type") or "").strip().lower()
 
     def _is_script_driven_bot(self, trading_config: Optional[Dict[str, Any]]) -> bool:
-        """Bot types whose on_bar script drives entries; hedge_arb uses orchestrator instead."""
-        return self._bot_type_key(trading_config) not in ("grid", "hedge_arb", "htx_earn_hedge")
+        """Bot types whose on_bar script drives entries; hedge_arb/ai_auto use orchestrator instead."""
+        return self._bot_type_key(trading_config) not in ("grid", "hedge_arb", "htx_earn_hedge", "ai_auto")
 
     def _run_hedge_arb_live_tick(
         self,
@@ -1120,6 +1120,32 @@ class TradingExecutor:
             )
         except Exception as e:
             logger.warning(f"Strategy {strategy_id} hedge_arb tick error: {e}")
+        return True
+
+    def _run_ai_auto_tick(
+        self,
+        strategy_id: int,
+        *,
+        user_id: int,
+        exchange_config: Dict[str, Any],
+        trading_config: Dict[str, Any],
+        execution_mode: str,
+    ) -> bool:
+        """Run AI regime + rule-engine tick. Works in signal or live (mode gated inside)."""
+        if self._bot_type_key(trading_config) != "ai_auto":
+            return False
+        _ = execution_mode  # human_mode inside trading_config gates live legs
+        try:
+            from app.services.auto_trading.runner import run_ai_auto_tick
+
+            run_ai_auto_tick(
+                strategy_id,
+                user_id=int(user_id or 1),
+                exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
+                trading_config=trading_config if isinstance(trading_config, dict) else {},
+            )
+        except Exception as e:
+            logger.warning(f"Strategy {strategy_id} ai_auto tick error: {e}")
         return True
 
     def _run_htx_earn_hedge_live_tick(
@@ -2285,6 +2311,14 @@ class TradingExecutor:
                     )
                 except Exception:
                     tick_interval_sec = 300
+            elif _bot_type_for_tick == 'ai_auto':
+                try:
+                    tick_interval_sec = max(
+                        60,
+                        int((trading_config or {}).get('tick_interval_sec') or os.getenv('AI_AUTO_TICK_SEC', '300')),
+                    )
+                except Exception:
+                    tick_interval_sec = 300
             elif _bot_type_for_tick == 'htx_earn_hedge':
                 try:
                     tick_interval_sec = max(
@@ -2369,6 +2403,18 @@ class TradingExecutor:
 
                     # hedge_arb: orchestrator tick every strategy poll (not tied to K-line branch).
                     if self._run_hedge_arb_live_tick(
+                        strategy_id,
+                        user_id=int(strategy_user_id or strategy.get('user_id') or 1),
+                        exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
+                        trading_config=trading_config if isinstance(trading_config, dict) else {},
+                        execution_mode=execution_mode,
+                    ):
+                        pending_signals = []
+                        consecutive_errors = 0
+                        continue
+
+                    # ai_auto: LLM regime JSON + rule engines (funding / opp / grid).
+                    if self._run_ai_auto_tick(
                         strategy_id,
                         user_id=int(strategy_user_id or strategy.get('user_id') or 1),
                         exchange_config=exchange_config if isinstance(exchange_config, dict) else {},

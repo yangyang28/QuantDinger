@@ -986,6 +986,22 @@ class StrategyService:
                 self._display_item('tickIntervalSec', 'trading-bot.hedgeArb.tickIntervalSec', self._to_int(tc.get('tick_interval_sec'), 300), 'number'),
                 self._display_item('maxHoldHours', 'trading-bot.hedgeArb.maxHoldHours', self._to_float(tc.get('max_hold_hours'), 0.0), 'number'),
             ]
+        elif bot_type == 'ai_auto':
+            human_mode = str(tc.get('human_mode') or tc.get('mode') or 'observe').strip().lower()
+            if human_mode not in ('observe', 'confirm', 'auto'):
+                human_mode = 'observe'
+            display['strategy_params'] = [
+                self._display_item('humanMode', 'trading-bot.aiAuto.humanMode', human_mode, 'enum'),
+                self._display_item('useLlm', 'trading-bot.aiAuto.useLlm', bool(tc.get('use_llm', True)), 'bool'),
+                self._display_item('enableFundingArb', 'trading-bot.aiAuto.enableFundingArb', bool(tc.get('enable_funding_arb', True)), 'bool'),
+                self._display_item('enableOpportunity', 'trading-bot.aiAuto.enableOpportunity', bool(tc.get('enable_opportunity', True)), 'bool'),
+                self._display_item('enableGrid', 'trading-bot.aiAuto.enableGrid', bool(tc.get('enable_grid', True)), 'bool'),
+                self._display_item('gridSimOnly', 'trading-bot.aiAuto.gridSimOnly', bool(tc.get('grid_sim_only', True)), 'bool'),
+                self._display_item('fundingNotionalUsdt', 'trading-bot.aiAuto.fundingNotionalUsdt', self._to_float(tc.get('funding_notional_usdt') or tc.get('notional_usdt'), 0.0), 'usdt'),
+                self._display_item('maxDailyLossPct', 'trading-bot.aiAuto.maxDailyLossPct', self._to_float(tc.get('max_daily_loss_pct'), 0.03) * 100, 'percent'),
+                self._display_item('tickIntervalSec', 'trading-bot.aiAuto.tickIntervalSec', self._to_int(tc.get('tick_interval_sec'), 300), 'number'),
+                self._display_item('regimeRefreshSec', 'trading-bot.aiAuto.regimeRefreshSec', self._to_int(tc.get('regime_refresh_sec'), 900), 'number'),
+            ]
 
         if self._to_float(tc.get('stop_loss_pct'), 0.0) > 0:
             display['risk_params'].append(

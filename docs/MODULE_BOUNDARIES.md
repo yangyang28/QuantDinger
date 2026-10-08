@@ -12,6 +12,7 @@ immediate rewrite. It is the contract to follow as existing code is decomposed.
 | `services` | business workflows and use-case orchestration | raw Flask request objects except at route boundary |
 | `services/live_trading` | exchange and broker adapters, order API normalization | strategy lifecycle, user auth, HTTP responses |
 | `services/grid` | grid engine, cell state, fill normalization, reconciliation | route parsing, frontend-specific formatting |
+| `services/auto_trading` | AI regime JSON, risk gates, strategy router, engine orchestration | LLM must not call `live_trading` / place orders |
 | `data_sources` | market data adapters and fetch policy | strategy execution or account mutation |
 | `data_providers` | dashboard/global-market aggregation and cache policy | trading decisions or order placement |
 | `utils` | low-level auth, db, cache, logging, time, crypto helpers | feature workflows |
