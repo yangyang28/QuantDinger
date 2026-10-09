@@ -103,7 +103,8 @@ const TYPE_META = {
   arbitrage: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   hedge_arb: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   ai_auto: { icon: 'robot', gradient: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 55%, #a855f7 100%)' },
-  htx_earn_hedge: { icon: 'bank', gradient: 'linear-gradient(135deg, #ff6a88 0%, #ff99ac 100%)' },
+  htx_earn_hedge: { icon: 'bank', gradient: 'linear-gradient(135deg, #0f766e 0%, #115e59 100%)' },
+  binance_btc_arb: { icon: 'transaction', gradient: 'linear-gradient(135deg, #b45309 0%, #f59e0b 100%)' },
   custom: { icon: 'code', gradient: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' }
 }
 

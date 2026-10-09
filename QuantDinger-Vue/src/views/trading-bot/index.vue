@@ -21,47 +21,26 @@
     </template>
 
     <template v-else>
-      <div class="page-header">
-        <div class="page-header-left">
-          <h2 class="page-title"><a-icon type="robot" class="title-icon" /> {{ $t('trading-bot.pageTitle') }}</h2>
-          <p class="page-subtitle">{{ $t('trading-bot.pageSubtitle') }}</p>
-        </div>
-        <div class="page-header-right">
-          <a-button @click="goToMarketplace">
-            <a-icon type="shop" />
-            {{ $t('trading-bot.action.openMarketplace') }}
-          </a-button>
-        </div>
-      </div>
-
-      <!-- KPI Cards -->
-      <div class="kpi-row">
-        <div v-for="kpi in kpiCards" :key="kpi.label" class="kpi-card">
-          <div class="kpi-icon" :style="{ color: kpi.color, background: kpi.color + '15' }">
-            <a-icon :type="kpi.icon" />
+      <div class="desk-hero">
+        <div class="desk-hero__brand">
+          <div class="desk-hero__mark">QD</div>
+          <div>
+            <div class="desk-hero__kicker">QuantDinger</div>
+            <h2 class="desk-hero__title">{{ $t('trading-bot.pageTitle') }}</h2>
+            <p class="desk-hero__sub">{{ $t('trading-bot.pageSubtitle') }}</p>
           </div>
-          <div class="kpi-body">
-            <div class="kpi-label">{{ kpi.label }}</div>
-            <div class="kpi-value">{{ kpi.value }}</div>
+        </div>
+        <div class="desk-hero__kpis">
+          <div v-for="kpi in kpiCards" :key="kpi.label" class="desk-kpi">
+            <div class="desk-kpi__label">{{ kpi.label }}</div>
+            <div class="desk-kpi__value" :style="{ color: kpi.color }">{{ kpi.value }}</div>
           </div>
         </div>
       </div>
 
-      <!-- Bot type selection cards -->
-      <bot-type-cards
-        @select="handleSelectBotType"
-        @ai-create="showAiDialog = true"
-      />
+      <bot-type-cards @select="handleSelectBotType" />
 
-      <ai-bot-dialog
-        :visible="showAiDialog"
-        :isDark="isDarkTheme"
-        @close="showAiDialog = false"
-        @apply="handleAiApply"
-      />
-
-      <!-- Bot list -->
-      <div style="margin-top: 24px;">
+      <div class="desk-list-wrap">
         <bot-list
           :bots="bots"
           :loading="loading"
@@ -73,23 +52,6 @@
           @edit="handleEditBot"
           @delete="handleDeleteBot"
         />
-      </div>
-
-      <!--
-        Subtle "escape hatch" link to the hidden /strategy-script page.
-        We intentionally do NOT make this a button or card — the wizard above
-        is the recommended path for 95% of users. This single line of small
-        muted text is enough for devs who specifically want raw Python.
-      -->
-      <div class="advanced-script-entry">
-        <a-icon type="code" class="advanced-script-entry__icon" />
-        <span class="advanced-script-entry__text">
-          {{ $t('trading-bot.advanced.scriptEntry.prefix') }}
-        </span>
-        <a class="advanced-script-entry__link" @click="goToScriptStrategies">
-          {{ $t('trading-bot.advanced.scriptEntry.linkText') }}
-          <a-icon type="arrow-right" />
-        </a>
       </div>
     </template>
 
@@ -155,12 +117,11 @@ import BotTypeCards from './components/BotTypeCards.vue'
 import BotCreateWizard from './components/BotCreateWizard.vue'
 import BotList from './components/BotList.vue'
 import BotDetail from './components/BotDetail.vue'
-import AiBotDialog from './components/AiBotDialog.vue'
 
 export default {
   name: 'TradingBot',
   mixins: [baseMixin],
-  components: { BotTypeCards, BotCreateWizard, BotList, BotDetail, AiBotDialog },
+  components: { BotTypeCards, BotCreateWizard, BotList, BotDetail },
   data () {
     return {
       userId: null,
@@ -171,7 +132,6 @@ export default {
       selectedBot: null,
       actionLoading: false,
       actionLoadingId: null,
-      showAiDialog: false,
       aiPreset: null,
       editingBot: null,
       showPublishPresetModal: false,
@@ -207,25 +167,25 @@ export default {
           label: this.$t('trading-bot.kpi.totalEquity'),
           value: '$' + totalEquity.toLocaleString('en-US', { minimumFractionDigits: 2 }),
           icon: 'wallet',
-          color: '#1890ff'
+          color: '#2dd4bf'
         },
         {
           label: this.$t('trading-bot.kpi.totalPnl'),
           value: (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toLocaleString('en-US', { minimumFractionDigits: 2 }),
           icon: 'rise',
-          color: totalPnl >= 0 ? '#52c41a' : '#f5222d'
+          color: totalPnl >= 0 ? '#34d399' : '#f87171'
         },
         {
           label: this.$t('trading-bot.kpi.running'),
           value: `${running} / ${total}`,
           icon: 'robot',
-          color: '#722ed1'
+          color: '#fbbf24'
         },
         {
           label: this.$t('trading-bot.kpi.stopped'),
           value: String(total - running),
           icon: 'pause-circle',
-          color: '#faad14'
+          color: '#94a3b8'
         }
       ]
     }
@@ -300,8 +260,10 @@ export default {
       this.viewMode = 'create'
     },
     handleAiApply (recommendation) {
-      this.showAiDialog = false
-      this.selectedBotType = recommendation.botType || 'grid'
+      // AI create entry is hidden; keep handler for deep-link presets only.
+      const allowed = new Set(['htx_earn_hedge', 'binance_btc_arb'])
+      const bt = recommendation.botType || 'htx_earn_hedge'
+      this.selectedBotType = allowed.has(bt) ? bt : 'htx_earn_hedge'
       this.aiPreset = recommendation
       this.editingBot = null
       this.viewMode = 'create'
@@ -580,6 +542,97 @@ export default {
       color: #40a9ff;
     }
   }
+}
+
+.desk-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+  padding: 22px 24px;
+  border-radius: 18px;
+  color: #f5f7fa;
+  background:
+    radial-gradient(900px 260px at 8% -30%, rgba(45, 212, 191, 0.22), transparent 55%),
+    linear-gradient(145deg, #0f1c2e 0%, #16324a 52%, #0f766e 160%);
+  font-family: "IBM Plex Sans", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.desk-hero__brand {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  min-width: 240px;
+}
+
+.desk-hero__mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.desk-hero__kicker {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.desk-hero__title {
+  margin: 2px 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.desk-hero__sub {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.72;
+}
+
+.desk-hero__kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  gap: 10px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.desk-kpi {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.desk-kpi__label {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-bottom: 6px;
+}
+
+.desk-kpi__value {
+  font-family: "IBM Plex Mono", "SF Mono", Consolas, monospace;
+  font-size: 18px;
+  font-weight: 650;
+  color: #fff;
+}
+
+.desk-list-wrap {
+  margin-top: 22px;
+}
+
+@media (max-width: 900px) {
+  .desk-hero__kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .page-header {

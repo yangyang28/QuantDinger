@@ -1189,4 +1189,64 @@ class BinanceFuturesClient(BaseRestClient):
         sym = to_binance_futures_symbol(want)
         return [p for p in rows if isinstance(p, dict) and str(p.get("symbol") or "") == sym]
 
+    def get_ticker(self, *, symbol: str) -> Dict[str, Any]:
+        px = float(self.get_mark_price(symbol=symbol) or 0.0)
+        return {"symbol": symbol, "close": px, "price": px}
+
+    def swap_short_base_qty(self, *, symbol: str) -> float:
+        """Aggregate short base quantity (USDT-M, one-way or hedge SHORT leg)."""
+        rows = self.get_positions(symbol=symbol)
+        if not isinstance(rows, list):
+            return 0.0
+        total = 0.0
+        dual = self.get_dual_side_position()
+        for pos in rows:
+            if not isinstance(pos, dict):
+                continue
+            try:
+                amt = float(pos.get("positionAmt") or 0.0)
+            except Exception:
+                amt = 0.0
+            if amt == 0.0:
+                continue
+            pos_side = str(pos.get("positionSide") or "BOTH").upper()
+            if dual is True:
+                if pos_side == "SHORT" and amt < 0:
+                    total += abs(amt)
+                elif pos_side == "SHORT" and amt > 0:
+                    total += amt
+                elif pos_side in ("BOTH", "") and amt < 0:
+                    total += abs(amt)
+            elif amt < 0:
+                total += abs(amt)
+        return total
+
+    def swap_liquidation_price(self, *, symbol: str) -> float:
+        rows = self.get_positions(symbol=symbol)
+        if not isinstance(rows, list):
+            return 0.0
+        dual = self.get_dual_side_position()
+        for pos in rows:
+            if not isinstance(pos, dict):
+                continue
+            try:
+                amt = float(pos.get("positionAmt") or 0.0)
+            except Exception:
+                amt = 0.0
+            pos_side = str(pos.get("positionSide") or "BOTH").upper()
+            is_short = amt < 0 or (dual is True and pos_side == "SHORT" and amt > 0)
+            if not is_short:
+                continue
+            for key in ("liquidationPrice", "liquidation_price", "liq_price"):
+                val = pos.get(key)
+                if val is None:
+                    continue
+                try:
+                    px = float(val)
+                    if px > 0:
+                        return px
+                except (TypeError, ValueError):
+                    pass
+        return 0.0
+
 

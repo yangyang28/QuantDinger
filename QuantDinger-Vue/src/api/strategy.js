@@ -51,7 +51,10 @@ const api = {
   aiAutoKill: '/api/strategies/ai-auto/kill',
   htxEarnHedgeStatus: '/api/strategies/htx-earn-hedge/status',
   htxEarnHedgeDeploy: '/api/strategies/htx-earn-hedge/deploy',
-  htxEarnHedgeEmergencyExit: '/api/strategies/htx-earn-hedge/emergency-exit'
+  htxEarnHedgeEmergencyExit: '/api/strategies/htx-earn-hedge/emergency-exit',
+  binanceBtcArbStatus: '/api/strategies/binance-btc-arb/status',
+  binanceBtcArbDeploy: '/api/strategies/binance-btc-arb/deploy',
+  binanceBtcArbEmergencyExit: '/api/strategies/binance-btc-arb/emergency-exit'
 }
 
 export function getStrategyList (params = {}) {
@@ -455,6 +458,30 @@ export function getHtxEarnHedgeStatus (id) {
 export function htxEarnHedgeDeploy (id) {
   return request({
     url: api.htxEarnHedgeDeploy,
+    method: 'post',
+    data: { id, strategy_id: id }
+  })
+}
+
+export function getBinanceBtcArbStatus (id) {
+  return request({
+    url: api.binanceBtcArbStatus,
+    method: 'get',
+    params: { id }
+  })
+}
+
+export function binanceBtcArbDeploy (id) {
+  return request({
+    url: api.binanceBtcArbDeploy,
+    method: 'post',
+    data: { id, strategy_id: id }
+  })
+}
+
+export function binanceBtcArbEmergencyExit (id) {
+  return request({
+    url: api.binanceBtcArbEmergencyExit,
     method: 'post',
     data: { id, strategy_id: id }
   })

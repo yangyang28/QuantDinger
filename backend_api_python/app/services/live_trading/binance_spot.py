@@ -832,4 +832,62 @@ class BinanceSpotClient(BaseRestClient):
         logger.warning("BinanceSpot could not obtain fee for order=%s symbol=%s", oid, symbol)
         return 0.0, ""
 
+    def get_ticker(self, *, symbol: str) -> Dict[str, Any]:
+        """Best-effort last price from GET /api/v3/ticker/price."""
+        sym = to_binance_futures_symbol(symbol)
+        if not sym:
+            return {}
+        try:
+            data = self._public_request("GET", "/api/v3/ticker/price", params={"symbol": sym})
+        except Exception:
+            return {}
+        try:
+            px = float(data.get("price") or 0.0)
+        except Exception:
+            px = 0.0
+        return {"symbol": symbol, "close": px, "price": px}
+
+    def get_spot_trade_balance(self, currency: str) -> float:
+        ccy = str(currency or "").strip().upper()
+        if not ccy:
+            return 0.0
+        try:
+            acct = self.get_account() or {}
+            balances = acct.get("balances") if isinstance(acct, dict) else []
+        except Exception:
+            return 0.0
+        if not isinstance(balances, list):
+            return 0.0
+        for row in balances:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("asset") or "").upper() != ccy:
+                continue
+            try:
+                free = float(row.get("free") or 0.0)
+            except Exception:
+                free = 0.0
+            return free
+        return 0.0
+
+    def get_spot_usdt_trade_balance(self) -> float:
+        return self.get_spot_trade_balance("usdt")
+
+    def spot_market_buy_usdt(
+        self,
+        *,
+        symbol: str,
+        usdt_amount: float,
+        client_order_id: Optional[str] = None,
+    ) -> LiveOrderResult:
+        amt = float(usdt_amount or 0.0)
+        if amt <= 0:
+            raise LiveTradingError("spot_market_buy_usdt requires positive usdt_amount")
+        return self.place_market_order(
+            symbol=symbol,
+            side="buy",
+            quote_order_qty=amt,
+            client_order_id=client_order_id,
+        )
+
 

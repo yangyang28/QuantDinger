@@ -853,6 +853,35 @@ class StrategyService:
         tc['bot_params'] = sanitize_grid_bot_params(bp)
         return tc
 
+    @staticmethod
+    def _sanitize_binance_btc_arb_trading_config(trading_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize binance_btc_arb params stored in trading_config."""
+        tc = dict(trading_config or {})
+        bot_type = str(tc.get('bot_type') or '').strip().lower()
+        if bot_type != 'binance_btc_arb':
+            return tc
+        from app.services.binance_btc_arb.config import parse_binance_btc_arb_config
+
+        cfg = parse_binance_btc_arb_config(tc)
+        tc['symbol'] = cfg.symbol
+        tc['currency'] = cfg.currency
+        tc['spot_usdt'] = cfg.spot_usdt
+        tc['perp_notional_usdt'] = cfg.perp_notional_usdt
+        tc['leverage'] = cfg.leverage
+        tc['pre_exit_pct'] = cfg.pre_exit_pct
+        tc['tick_interval_sec'] = cfg.tick_interval_sec
+        tc['min_sell_qty'] = cfg.min_sell_qty
+        tc['spot_fee_rate'] = cfg.spot_fee_rate
+        tc['perp_fee_rate'] = cfg.perp_fee_rate
+        tc['align_1to1'] = cfg.align_1to1
+        tc.setdefault('market_type', 'swap')
+        tc.setdefault('execution_mode', tc.get('execution_mode') or 'live')
+        return tc
+
+    def _normalize_bot_trading_config(self, trading_config: Dict[str, Any]) -> Dict[str, Any]:
+        tc = self._sanitize_grid_trading_config(trading_config)
+        return self._sanitize_binance_btc_arb_trading_config(tc)
+
     def _build_bot_display(self, trading_config: Dict[str, Any]) -> Dict[str, Any]:
         tc = trading_config if isinstance(trading_config, dict) else {}
         bot_type = str(tc.get('bot_type') or '').strip().lower()
@@ -965,6 +994,14 @@ class StrategyService:
                 self._display_item('leverage', 'trading-bot.htxEarnHedge.leverage', self._to_int(tc.get('leverage'), 2), 'number'),
                 self._display_item('preRedeemPct', 'trading-bot.htxEarnHedge.preRedeemPct', self._to_float(tc.get('pre_redeem_pct'), 0.005) * 100, 'percent'),
                 self._display_item('tickIntervalSec', 'trading-bot.htxEarnHedge.tickIntervalSec', self._to_int(tc.get('tick_interval_sec'), 10), 'number'),
+            ]
+        elif bot_type == 'binance_btc_arb':
+            display['strategy_params'] = [
+                self._display_item('spotUsdt', 'trading-bot.binanceBtcArb.spotUsdt', self._to_float(tc.get('spot_usdt'), 2000.0), 'usdt'),
+                self._display_item('perpNotionalUsdt', 'trading-bot.binanceBtcArb.perpNotionalUsdt', self._to_float(tc.get('perp_notional_usdt'), 2000.0), 'usdt'),
+                self._display_item('leverage', 'trading-bot.binanceBtcArb.leverage', self._to_int(tc.get('leverage'), 2), 'number'),
+                self._display_item('preExitPct', 'trading-bot.binanceBtcArb.preExitPct', self._to_float(tc.get('pre_exit_pct'), 0.005) * 100, 'percent'),
+                self._display_item('tickIntervalSec', 'trading-bot.binanceBtcArb.tickIntervalSec', self._to_int(tc.get('tick_interval_sec'), 10), 'number'),
             ]
         elif bot_type == 'hedge_arb':
             entry_mode = str(tc.get('entry_order_mode') or tc.get('order_mode') or 'best').strip().lower()
@@ -1179,7 +1216,7 @@ class StrategyService:
         trading_config = _strip_legacy_risk_pct_basis(
             _apply_default_strict_mode(payload.get('trading_config') or {})
         )
-        trading_config = self._sanitize_grid_trading_config(trading_config)
+        trading_config = self._normalize_bot_trading_config(trading_config)
         if strategy_type == 'IndicatorStrategy':
             trading_config = _apply_risk_flat_from_indicator_code(
                 trading_config, indicator_config
@@ -1574,7 +1611,7 @@ class StrategyService:
                 trading_config, indicator_config
             )
 
-        trading_config = self._sanitize_grid_trading_config(trading_config)
+        trading_config = self._normalize_bot_trading_config(trading_config)
 
         # When credential_id is present, strip raw API keys to avoid
         # storing secrets in the strategy record — they live in qd_exchange_credentials.

@@ -79,6 +79,7 @@ BOT_TYPE_MARKETS: Dict[str, Set[str]] = {
     # Spot + perpetual delta-neutral / funding-rate hedge (multi-exchange spot+swap).
     "hedge_arb":  {"Crypto"},
     "htx_earn_hedge": {"Crypto"},
+    "binance_btc_arb": {"Crypto"},
     # LLM regime JSON + rule engines (funding / opportunity / grid). Crypto MVP.
     "ai_auto": {"Crypto"},
 }

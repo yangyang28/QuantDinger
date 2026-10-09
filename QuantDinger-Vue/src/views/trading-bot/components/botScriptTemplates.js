@@ -478,6 +478,16 @@ def on_init(ctx):
 
 def on_bar(ctx, bar):
     pass
+`,
+
+  binance_btc_arb: () => `# ---- Binance BTC Spot/Perp 1:1 Arb (orchestrator-driven) ----
+
+def on_init(ctx):
+    ctx.log("binance_btc_arb: spot long + perp short 1:1; sell spot to USDT on liquidation")
+
+
+def on_bar(ctx, bar):
+    pass
 `
 }
 

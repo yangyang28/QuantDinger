@@ -566,6 +566,21 @@ CREATE TABLE IF NOT EXISTS qd_htx_earn_hedge_state (
 );
 CREATE INDEX IF NOT EXISTS idx_htx_earn_hedge_fsm ON qd_htx_earn_hedge_state(fsm);
 
+CREATE TABLE IF NOT EXISTS qd_binance_btc_arb_state (
+    strategy_id INTEGER PRIMARY KEY REFERENCES qd_strategies_trading(id) ON DELETE CASCADE,
+    fsm VARCHAR(32) NOT NULL DEFAULT 'idle',
+    symbol VARCHAR(50) NOT NULL DEFAULT '',
+    spot_qty DECIMAL(24, 8) NOT NULL DEFAULT 0,
+    perp_qty DECIMAL(24, 8) NOT NULL DEFAULT 0,
+    last_perp_qty DECIMAL(24, 8) NOT NULL DEFAULT 0,
+    deployed_at TIMESTAMP,
+    last_error TEXT DEFAULT '',
+    extra JSONB DEFAULT '{}'::jsonb,
+    pre_exit_done BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_binance_btc_arb_fsm ON qd_binance_btc_arb_state(fsm);
+
 -- AI auto-trading module (bot_type=ai_auto): regime snapshots + runtime state.
 CREATE TABLE IF NOT EXISTS qd_ai_auto_state (
     strategy_id INTEGER PRIMARY KEY REFERENCES qd_strategies_trading(id) ON DELETE CASCADE,

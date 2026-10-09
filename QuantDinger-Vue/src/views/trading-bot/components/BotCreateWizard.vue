@@ -103,6 +103,13 @@
             >
               <a-icon type="warning" /> {{ $t('trading-bot.htxEarnHedge.exchangeNotSupported') }}
             </div>
+            <div
+              v-if="isBinanceBtcArbBot && currentExchangeId && !binanceBtcArbExchangeSupported"
+              class="form-hint"
+              style="margin-top: 6px; color: #ff9800;"
+            >
+              <a-icon type="warning" /> {{ $t('trading-bot.binanceBtcArb.exchangeNotSupported') }}
+            </div>
           </a-form-model-item>
 
           <a-form-model-item :label="$t('trading-bot.wizard.symbol')" prop="symbol">
@@ -172,7 +179,9 @@
               <span class="form-hint" style="margin-left: 8px;">
                 {{ isHtxEarnHedgeBot
                   ? $t('trading-bot.htxEarnHedge.marketTypeHint')
-                  : (isZhLocale ? 'K 线使用永续价；orchestrator 自动开 spot + swap 两腿' : 'K-line uses perp price; orchestrator opens spot + swap legs') }}
+                  : (isBinanceBtcArbBot
+                    ? $t('trading-bot.binanceBtcArb.marketTypeHint')
+                    : (isZhLocale ? 'K 线使用永续价；orchestrator 自动开 spot + swap 两腿' : 'K-line uses perp price; orchestrator opens spot + swap legs')) }}
               </span>
             </template>
             <template v-else-if="shouldShowMarketTypeSelector">
@@ -203,7 +212,7 @@
           </a-form-model-item>
 
           <a-form-model-item
-            v-if="!isHtxEarnHedgeBot"
+            v-if="!isDualCapitalArbBot"
             :label="capitalLabel"
             prop="initialCapital"
           >
@@ -221,7 +230,9 @@
             type="info"
             show-icon
             style="margin-bottom: 8px;"
-            :message="$t('trading-bot.htxEarnHedge.capitalStepHint')"
+            :message="isBinanceBtcArbBot
+              ? $t('trading-bot.binanceBtcArb.capitalStepHint')
+              : $t('trading-bot.htxEarnHedge.capitalStepHint')"
           />
 
           <a-form-model-item v-if="isHedgeArbBot" :label="$t('trading-bot.grid.orderType')">
@@ -259,8 +270,12 @@
               type="info"
               show-icon
               style="margin-bottom: 16px;"
-              :message="isHtxEarnHedgeBot ? $t('trading-bot.htxEarnHedge.riskTitle') : $t('trading-bot.hedgeArb.riskTitle')"
-              :description="isHtxEarnHedgeBot ? $t('trading-bot.htxEarnHedge.riskDesc') : $t('trading-bot.hedgeArb.riskDesc')"
+              :message="isHtxEarnHedgeBot
+                ? $t('trading-bot.htxEarnHedge.riskTitle')
+                : (isBinanceBtcArbBot ? $t('trading-bot.binanceBtcArb.riskTitle') : $t('trading-bot.hedgeArb.riskTitle'))"
+              :description="isHtxEarnHedgeBot
+                ? $t('trading-bot.htxEarnHedge.riskDesc')
+                : (isBinanceBtcArbBot ? $t('trading-bot.binanceBtcArb.riskDesc') : $t('trading-bot.hedgeArb.riskDesc'))"
             />
           </template>
           <template v-else-if="botType !== 'martingale'">
@@ -375,14 +390,14 @@
             >
               {{ baseForm.leverage }}x
             </a-descriptions-item>
-            <a-descriptions-item v-if="!isHtxEarnHedgeBot" :label="capitalLabel">
+            <a-descriptions-item v-if="!isDualCapitalArbBot" :label="capitalLabel">
               ${{ baseForm.initialCapital }}
             </a-descriptions-item>
             <template v-else>
-              <a-descriptions-item :label="$t('trading-bot.htxEarnHedge.spotCapital')">
+              <a-descriptions-item :label="isBinanceBtcArbBot ? $t('trading-bot.binanceBtcArb.spotCapital') : $t('trading-bot.htxEarnHedge.spotCapital')">
                 {{ strategyParams.spotUsdt }} U
               </a-descriptions-item>
-              <a-descriptions-item :label="$t('trading-bot.htxEarnHedge.contractCapital')">
+              <a-descriptions-item :label="isBinanceBtcArbBot ? $t('trading-bot.binanceBtcArb.contractCapital') : $t('trading-bot.htxEarnHedge.contractCapital')">
                 {{ strategyParams.perpNotionalUsdt }} U
               </a-descriptions-item>
             </template>
@@ -528,6 +543,7 @@ import TrendConfig from './configs/TrendConfig.vue'
 import DCAConfig from './configs/DCAConfig.vue'
 import HedgeArbConfig from './configs/HedgeArbConfig.vue'
 import HtxEarnHedgeConfig from './configs/HtxEarnHedgeConfig.vue'
+import BinanceBtcArbConfig from './configs/BinanceBtcArbConfig.vue'
 import AiAutoConfig from './configs/AiAutoConfig.vue'
 import { formatPercentDisplay, ratioOrPercentToUiPercent } from '@/utils/numberFormat'
 
@@ -564,8 +580,13 @@ const BOT_TYPE_MAP = {
   },
   htx_earn_hedge: {
     icon: 'bank',
-    gradient: 'linear-gradient(135deg, #ff6a88 0%, #ff99ac 100%)',
+    gradient: 'linear-gradient(135deg, #0f766e 0%, #115e59 100%)',
     component: 'HtxEarnHedgeConfig'
+  },
+  binance_btc_arb: {
+    icon: 'transaction',
+    gradient: 'linear-gradient(135deg, #b45309 0%, #f59e0b 100%)',
+    component: 'BinanceBtcArbConfig'
   }
 }
 
@@ -588,6 +609,10 @@ function isHtxEarnHedgeExchangeSupported (exchangeId) {
   return ex === 'htx' || ex === 'huobi'
 }
 
+function isBinanceBtcArbExchangeSupported (exchangeId) {
+  return String(exchangeId || '').trim().toLowerCase() === 'binance'
+}
+
 // All knowledge about which broker can serve which market lives in the
 // backend `app/services/broker_market_policy.py` and is fetched at boot
 // into the `policy` Vuex store. We read it via the `brokerMarketPolicy`
@@ -596,7 +621,7 @@ function isHtxEarnHedgeExchangeSupported (exchangeId) {
 
 export default {
   name: 'BotCreateWizard',
-  components: { GridConfig, MartingaleConfig, TrendConfig, DCAConfig, HedgeArbConfig, AiAutoConfig, HtxEarnHedgeConfig },
+  components: { GridConfig, MartingaleConfig, TrendConfig, DCAConfig, HedgeArbConfig, AiAutoConfig, HtxEarnHedgeConfig, BinanceBtcArbConfig },
   props: {
     botType: { type: String, required: true },
     aiPreset: { type: Object, default: null },
@@ -632,7 +657,7 @@ export default {
         symbol: [{ required: true, message: this.$t('trading-bot.wizard.symbolReq'), trigger: 'change' }],
         initialCapital: [{
           validator: (rule, value, callback) => {
-            if (this.isHtxEarnHedgeBot) {
+            if (this.isDualCapitalArbBot) {
               callback()
               return
             }
@@ -866,8 +891,14 @@ export default {
     isHtxEarnHedgeBot () {
       return this.botType === 'htx_earn_hedge'
     },
+    isBinanceBtcArbBot () {
+      return this.botType === 'binance_btc_arb'
+    },
+    isDualCapitalArbBot () {
+      return this.isHtxEarnHedgeBot || this.isBinanceBtcArbBot
+    },
     isOrchestratorHedgeBot () {
-      return this.isHedgeArbBot || this.isHtxEarnHedgeBot || this.isAiAutoBot
+      return this.isHedgeArbBot || this.isHtxEarnHedgeBot || this.isAiAutoBot || this.isBinanceBtcArbBot
     },
     hedgeArbExchangeSupported () {
       if (!this.isHedgeArbBot && !this.isAiAutoBot) return true
@@ -876,6 +907,10 @@ export default {
     htxEarnHedgeExchangeSupported () {
       if (!this.isHtxEarnHedgeBot) return true
       return isHtxEarnHedgeExchangeSupported(this.currentExchangeId)
+    },
+    binanceBtcArbExchangeSupported () {
+      if (!this.isBinanceBtcArbBot) return true
+      return isBinanceBtcArbExchangeSupported(this.currentExchangeId)
     },
     isZhLocale () {
       return String(this.$i18n?.locale || '').toLowerCase().startsWith('zh')
@@ -1042,6 +1077,12 @@ export default {
       this.baseForm.marketType = 'swap'
       this.baseForm.leverage = 2
     }
+    if (this.botType === 'binance_btc_arb' && !this.editBot) {
+      this.baseForm.marketCategory = 'Crypto'
+      this.baseForm.marketType = 'swap'
+      this.baseForm.leverage = 2
+      this.baseForm.symbol = 'BTC/USDT'
+    }
     this.loadCredentials()
     if (this.editBot) {
       this.applyEditBot()
@@ -1123,7 +1164,11 @@ export default {
         rebalanceThresholdPct: this.$t('trading-bot.hedgeArb.rebalanceThresholdPct'),
         tickIntervalSec: this.isAiAutoBot
           ? this.$t('trading-bot.aiAuto.tickIntervalSec')
-          : this.$t('trading-bot.hedgeArb.tickIntervalSec'),
+          : (this.isBinanceBtcArbBot
+            ? this.$t('trading-bot.binanceBtcArb.tickIntervalSec')
+            : (this.isHtxEarnHedgeBot
+              ? this.$t('trading-bot.htxEarnHedge.tickIntervalSec')
+              : this.$t('trading-bot.hedgeArb.tickIntervalSec'))),
         maxHoldHours: this.$t('trading-bot.hedgeArb.maxHoldHours'),
         humanMode: this.$t('trading-bot.aiAuto.humanMode'),
         useLlm: this.$t('trading-bot.aiAuto.useLlm'),
@@ -1134,11 +1179,20 @@ export default {
         fundingNotionalUsdt: this.$t('trading-bot.aiAuto.fundingNotionalUsdt'),
         maxDailyLossPct: this.$t('trading-bot.aiAuto.maxDailyLossPct'),
         regimeRefreshSec: this.$t('trading-bot.aiAuto.regimeRefreshSec'),
-        spotUsdt: this.$t('trading-bot.htxEarnHedge.spotCapital'),
-        perpNotionalUsdt: this.$t('trading-bot.htxEarnHedge.contractCapital'),
-        sync1to1: this.$t('trading-bot.htxEarnHedge.sync1to1'),
+        spotUsdt: this.isBinanceBtcArbBot
+          ? this.$t('trading-bot.binanceBtcArb.spotCapital')
+          : this.$t('trading-bot.htxEarnHedge.spotCapital'),
+        perpNotionalUsdt: this.isBinanceBtcArbBot
+          ? this.$t('trading-bot.binanceBtcArb.contractCapital')
+          : this.$t('trading-bot.htxEarnHedge.contractCapital'),
+        sync1to1: this.isBinanceBtcArbBot
+          ? this.$t('trading-bot.binanceBtcArb.sync1to1')
+          : this.$t('trading-bot.htxEarnHedge.sync1to1'),
         preRedeemPct: this.$t('trading-bot.htxEarnHedge.preRedeemPct'),
-        leverage: this.$t('trading-bot.htxEarnHedge.leverage'),
+        preExitPct: this.$t('trading-bot.binanceBtcArb.preExitPct'),
+        leverage: this.isBinanceBtcArbBot
+          ? this.$t('trading-bot.binanceBtcArb.leverage')
+          : this.$t('trading-bot.htxEarnHedge.leverage'),
         // Trailing TP fields (shared between martingale and trend bots).
         trailingTpEnabled: this.fallbackLabel('启用追踪止盈', 'Trailing TP'),
         trailingTpActivationPct: this.fallbackLabel('追踪止盈激活涨幅', 'Trailing TP Activation %'),
@@ -1316,6 +1370,29 @@ export default {
           maxDailyLossPct: ratioOrPercentToUiPercent(tc.max_daily_loss_pct ?? tc.bot_params?.maxDailyLossPct ?? 0.03, 2),
           tickIntervalSec: tc.tick_interval_sec ?? tc.bot_params?.tickIntervalSec ?? 300,
           regimeRefreshSec: tc.regime_refresh_sec ?? tc.bot_params?.regimeRefreshSec ?? 900
+        }
+      } else if (this.botType === 'htx_earn_hedge') {
+        this.baseForm.marketCategory = 'Crypto'
+        this.baseForm.marketType = 'swap'
+        this.strategyParams = {
+          spotUsdt: tc.spot_usdt ?? tc.bot_params?.spotUsdt ?? 2000,
+          perpNotionalUsdt: tc.perp_notional_usdt ?? tc.bot_params?.perpNotionalUsdt ?? 2000,
+          sync1to1: tc.align_1to1 ?? tc.bot_params?.sync1to1 ?? true,
+          leverage: tc.leverage ?? tc.bot_params?.leverage ?? 2,
+          preRedeemPct: ratioOrPercentToUiPercent(tc.pre_redeem_pct ?? tc.bot_params?.preRedeemPct ?? 0.005, 2),
+          tickIntervalSec: tc.tick_interval_sec ?? tc.bot_params?.tickIntervalSec ?? 10
+        }
+      } else if (this.botType === 'binance_btc_arb') {
+        this.baseForm.marketCategory = 'Crypto'
+        this.baseForm.marketType = 'swap'
+        this.baseForm.symbol = tc.symbol || 'BTC/USDT'
+        this.strategyParams = {
+          spotUsdt: tc.spot_usdt ?? tc.bot_params?.spotUsdt ?? 2000,
+          perpNotionalUsdt: tc.perp_notional_usdt ?? tc.bot_params?.perpNotionalUsdt ?? 2000,
+          sync1to1: tc.align_1to1 ?? tc.bot_params?.sync1to1 ?? true,
+          leverage: tc.leverage ?? tc.bot_params?.leverage ?? 2,
+          preExitPct: ratioOrPercentToUiPercent(tc.pre_exit_pct ?? tc.bot_params?.preExitPct ?? 0.005, 2),
+          tickIntervalSec: tc.tick_interval_sec ?? tc.bot_params?.tickIntervalSec ?? 10
         }
       } else if (tc.bot_params && typeof tc.bot_params === 'object') {
         this.strategyParams = this.normalizeStrategyParams({ ...tc.bot_params })
@@ -1620,10 +1697,13 @@ export default {
         leverage = 1
         tradeDirection = 'long'
       }
-      if (this.isHtxEarnHedgeBot) {
+      if (this.isHtxEarnHedgeBot || this.isBinanceBtcArbBot) {
         marketType = 'swap'
         leverage = Number(strategyParams.leverage || 2)
         tradeDirection = 'long'
+      }
+      if (this.isBinanceBtcArbBot) {
+        this.baseForm.symbol = this.baseForm.symbol || 'BTC/USDT'
       }
 
       // Validate broker x market compatibility against the policy snapshot.
@@ -1647,6 +1727,9 @@ export default {
 
       if (this.isHtxEarnHedgeBot && !isHtxEarnHedgeExchangeSupported(exId)) {
         throw new Error(this.$t('trading-bot.htxEarnHedge.exchangeNotSupported'))
+      }
+      if (this.isBinanceBtcArbBot && !isBinanceBtcArbExchangeSupported(exId)) {
+        throw new Error(this.$t('trading-bot.binanceBtcArb.exchangeNotSupported'))
       }
 
       const hedgeArbExtras = {}
@@ -1690,7 +1773,8 @@ export default {
       }
 
       const htxEarnExtras = {}
-      let htxInitialCapital = this.baseForm.initialCapital
+      const binanceBtcExtras = {}
+      let dualInitialCapital = this.baseForm.initialCapital
       if (this.isHtxEarnHedgeBot) {
         const p = strategyParams
         const spotU = Number(p.spotUsdt || 0)
@@ -1706,14 +1790,31 @@ export default {
         htxEarnExtras.tick_interval_sec = p.tickIntervalSec
         htxEarnExtras.align_1to1 = p.sync1to1 !== false
         htxEarnExtras.order_mode = 'market'
-        // Accounting capital ≈ spot cash + perp margin (notional / leverage)
-        htxInitialCapital = Math.round((spotU + perpU / lev) * 100) / 100
-        this.baseForm.initialCapital = htxInitialCapital
+        dualInitialCapital = Math.round((spotU + perpU / lev) * 100) / 100
+        this.baseForm.initialCapital = dualInitialCapital
+      }
+      if (this.isBinanceBtcArbBot) {
+        const p = strategyParams
+        const spotU = Number(p.spotUsdt || 0)
+        const perpU = Number(p.perpNotionalUsdt || 0)
+        const lev = Math.max(1, Number(p.leverage || 2))
+        binanceBtcExtras.spot_usdt = spotU
+        binanceBtcExtras.perp_notional_usdt = perpU
+        binanceBtcExtras.spot_capital_usdt = spotU
+        binanceBtcExtras.perp_capital_usdt = perpU
+        binanceBtcExtras.contract_capital_usdt = perpU
+        binanceBtcExtras.leverage = lev
+        binanceBtcExtras.pre_exit_pct = p.preExitPct / 100
+        binanceBtcExtras.tick_interval_sec = p.tickIntervalSec
+        binanceBtcExtras.align_1to1 = p.sync1to1 !== false
+        binanceBtcExtras.order_mode = 'market'
+        dualInitialCapital = Math.round((spotU + perpU / lev) * 100) / 100
+        this.baseForm.initialCapital = dualInitialCapital
       }
 
       const hedgeArbOrderMode = (this.isHedgeArbBot || this.isAiAutoBot)
         ? 'market'
-        : (this.isHtxEarnHedgeBot ? 'market' : null)
+        : ((this.isHtxEarnHedgeBot || this.isBinanceBtcArbBot) ? 'market' : null)
 
       return {
         strategy_name: this.baseForm.botName,
@@ -1732,7 +1833,7 @@ export default {
           market_type: marketType,
           leverage: leverage,
           trade_direction: tradeDirection,
-          initial_capital: this.isHtxEarnHedgeBot ? htxInitialCapital : this.baseForm.initialCapital,
+          initial_capital: this.isDualCapitalArbBot ? dualInitialCapital : this.baseForm.initialCapital,
           stop_loss_pct: (this.botType === 'martingale' || this.isOrchestratorHedgeBot) ? 0 : this.riskForm.stopLossPct,
           take_profit_pct: (this.botType === 'martingale' || this.isOrchestratorHedgeBot) ? 0 : this.riskForm.takeProfitPct,
           max_position: (this.botType === 'martingale' || this.isOrchestratorHedgeBot) ? 0 : this.riskForm.maxPosition,
@@ -1742,6 +1843,7 @@ export default {
           ...hedgeArbExtras,
           ...aiAutoExtras,
           ...htxEarnExtras,
+          ...binanceBtcExtras,
           // Grid-only knobs — backend ignores them for trend/martingale, and
           // sending them as undefined would override the server-side default
           // of 1s for grid bots, so only attach them on grid/dca.

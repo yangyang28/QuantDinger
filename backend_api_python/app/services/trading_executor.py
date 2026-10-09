@@ -1093,7 +1093,13 @@ class TradingExecutor:
 
     def _is_script_driven_bot(self, trading_config: Optional[Dict[str, Any]]) -> bool:
         """Bot types whose on_bar script drives entries; hedge_arb/ai_auto use orchestrator instead."""
-        return self._bot_type_key(trading_config) not in ("grid", "hedge_arb", "htx_earn_hedge", "ai_auto")
+        return self._bot_type_key(trading_config) not in (
+            "grid",
+            "hedge_arb",
+            "htx_earn_hedge",
+            "binance_btc_arb",
+            "ai_auto",
+        )
 
     def _run_hedge_arb_live_tick(
         self,
@@ -1172,6 +1178,32 @@ class TradingExecutor:
             )
         except Exception as e:
             logger.warning(f"Strategy {strategy_id} htx_earn_hedge tick error: {e}")
+        return True
+
+    def _run_binance_btc_arb_live_tick(
+        self,
+        strategy_id: int,
+        *,
+        user_id: int,
+        exchange_config: Dict[str, Any],
+        trading_config: Dict[str, Any],
+        execution_mode: str,
+    ) -> bool:
+        if self._bot_type_key(trading_config) != "binance_btc_arb":
+            return False
+        if str(execution_mode or "").strip().lower() != "live":
+            return False
+        try:
+            from app.services.binance_btc_arb.runner import run_binance_btc_arb_tick
+
+            run_binance_btc_arb_tick(
+                strategy_id,
+                user_id=int(user_id or 1),
+                exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
+                trading_config=trading_config if isinstance(trading_config, dict) else {},
+            )
+        except Exception as e:
+            logger.warning(f"Strategy {strategy_id} binance_btc_arb tick error: {e}")
         return True
 
     def _is_live_grid_resting(
@@ -2327,6 +2359,14 @@ class TradingExecutor:
                     )
                 except Exception:
                     tick_interval_sec = 10
+            elif _bot_type_for_tick == 'binance_btc_arb':
+                try:
+                    tick_interval_sec = max(
+                        5,
+                        int((trading_config or {}).get('tick_interval_sec') or os.getenv('BINANCE_BTC_ARB_TICK_SEC', '10')),
+                    )
+                except Exception:
+                    tick_interval_sec = 10
             else:
                 tick_interval_sec = None
                 try:
@@ -2426,6 +2466,17 @@ class TradingExecutor:
                         continue
 
                     if self._run_htx_earn_hedge_live_tick(
+                        strategy_id,
+                        user_id=int(strategy_user_id or strategy.get('user_id') or 1),
+                        exchange_config=exchange_config if isinstance(exchange_config, dict) else {},
+                        trading_config=trading_config if isinstance(trading_config, dict) else {},
+                        execution_mode=execution_mode,
+                    ):
+                        pending_signals = []
+                        consecutive_errors = 0
+                        continue
+
+                    if self._run_binance_btc_arb_live_tick(
                         strategy_id,
                         user_id=int(strategy_user_id or strategy.get('user_id') or 1),
                         exchange_config=exchange_config if isinstance(exchange_config, dict) else {},

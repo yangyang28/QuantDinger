@@ -417,6 +417,80 @@
       </div>
     </a-card>
 
+    <a-card
+      v-if="isBinanceBtcArbBot"
+      :bordered="false"
+      class="hedge-summary-card"
+      style="margin-top: 12px;"
+    >
+      <div class="hedge-summary">
+        <div class="hedge-summary__header">
+          <div class="hedge-summary__title">
+            <span class="hedge-summary__icon"><a-icon type="transaction" /></span>
+            <div class="hedge-summary__title-text">
+              <span class="hedge-summary__name">{{ $t('trading-bot.binanceBtcArb.panelTitle') }}</span>
+              <a-tooltip :title="$t('trading-bot.binanceBtcArb.panelHint')">
+                <a-icon type="question-circle" class="hedge-summary__tip" />
+              </a-tooltip>
+            </div>
+          </div>
+          <div class="hedge-arb-actions">
+            <a-button size="small" @click="refreshBinanceBtcArbStatus" :loading="binanceBtcArbLoading">
+              <a-icon type="reload" />
+            </a-button>
+            <a-button
+              v-if="isBinanceBtcArbLive"
+              size="small"
+              type="primary"
+              :loading="binanceBtcArbActionLoading"
+              @click="handleBinanceBtcArbDeploy"
+            >
+              {{ $t('trading-bot.binanceBtcArb.actionDeploy') }}
+            </a-button>
+            <a-button
+              v-if="isBinanceBtcArbLive"
+              size="small"
+              type="danger"
+              :loading="binanceBtcArbActionLoading"
+              @click="handleBinanceBtcArbEmergencyExit"
+            >
+              {{ $t('trading-bot.binanceBtcArb.actionEmergencyExit') }}
+            </a-button>
+          </div>
+        </div>
+        <div class="hedge-summary__grid hedge-arb-grid">
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.binanceBtcArb.fsm') }}</span></div>
+            <div class="hedge-stat__value">{{ binanceBtcArbStatus.fsm || 'idle' }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.binanceBtcArb.spotQty') }}</span></div>
+            <div class="hedge-stat__value">{{ formatHedgeQty(binanceBtcArbStatus.spot_qty || binanceBtcArbStatus.spot_avail) }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.binanceBtcArb.perpQty') }}</span></div>
+            <div class="hedge-stat__value">{{ formatHedgeQty(binanceBtcArbStatus.perp_qty) }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.binanceBtcArb.distToLiq') }}</span></div>
+            <div class="hedge-stat__value">{{ formatBasisPct(binanceBtcArbStatus.dist_to_liq_pct) }}</div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.binanceBtcArb.alignStatus') }}</span></div>
+            <div class="hedge-stat__value">
+              {{ formatBasisPct(binanceBtcAlign.qty_drift_pct) }}
+              <a-tag v-if="binanceBtcAlign.qty_matched" color="green" size="small" style="margin-left: 6px;">1:1</a-tag>
+            </div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.binanceBtcArb.totalFee') }}</span></div>
+            <div class="hedge-stat__value">{{ formatHtxFee(binanceBtcFees.total_fee_est_usdt) }}</div>
+          </div>
+        </div>
+        <div v-if="binanceBtcArbStatus.last_error" class="hedge-arb-error">{{ binanceBtcArbStatus.last_error }}</div>
+      </div>
+    </a-card>
+
     <a-modal
       :title="$t('trading-bot.hedgeArb.backtestTitle')"
       :visible="hedgeArbBacktestVisible"
@@ -672,7 +746,7 @@ import PerformanceAnalysis from '@/views/trading-assistant/components/Performanc
 import StrategyReviewReport from '@/views/trading-assistant/components/StrategyReviewReport.vue'
 import StrategyLogs from '@/views/trading-assistant/components/StrategyLogs.vue'
 import ArbPnlPanel from '@/views/trading-bot/components/ArbPnlPanel.vue'
-import { getStrategyPositions, getStrategyTrades, getGridRestingOrders, getHedgeArbStatus, hedgeArbEnter, hedgeArbExit, hedgeArbRebalance, hedgeArbBacktest, getHtxEarnHedgeStatus, htxEarnHedgeDeploy, htxEarnHedgeEmergencyExit, getAiAutoStatus, aiAutoTick, aiAutoKill } from '@/api/strategy'
+import { getStrategyPositions, getStrategyTrades, getGridRestingOrders, getHedgeArbStatus, hedgeArbEnter, hedgeArbExit, hedgeArbRebalance, hedgeArbBacktest, getHtxEarnHedgeStatus, htxEarnHedgeDeploy, htxEarnHedgeEmergencyExit, getBinanceBtcArbStatus, binanceBtcArbDeploy, binanceBtcArbEmergencyExit, getAiAutoStatus, aiAutoTick, aiAutoKill } from '@/api/strategy'
 
 const TYPE_META = {
   grid: { icon: 'bar-chart', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
@@ -682,7 +756,8 @@ const TYPE_META = {
   arbitrage: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   hedge_arb: { icon: 'swap', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   ai_auto: { icon: 'robot', gradient: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 55%, #a855f7 100%)' },
-  htx_earn_hedge: { icon: 'bank', gradient: 'linear-gradient(135deg, #ff6a88 0%, #ff99ac 100%)' },
+  htx_earn_hedge: { icon: 'bank', gradient: 'linear-gradient(135deg, #0f766e 0%, #115e59 100%)' },
+  binance_btc_arb: { icon: 'transaction', gradient: 'linear-gradient(135deg, #b45309 0%, #f59e0b 100%)' },
   custom: { icon: 'code', gradient: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' }
 }
 
@@ -765,6 +840,10 @@ export default {
       hedgeArbBacktestResult: null,
       htxEarnHedgeStatus: {},
       htxEarnHedgeLoading: false,
+      binanceBtcArbStatus: {},
+      binanceBtcArbLoading: false,
+      binanceBtcArbActionLoading: false,
+      binanceBtcArbTimer: null,
       htxEarnHedgeTimer: null,
       htxEarnHedgeActionLoading: false,
       aiAutoStatus: {},
@@ -883,6 +962,10 @@ export default {
       const bt = this.bot?.bot_type || this.tc.bot_type
       return bt === 'htx_earn_hedge'
     },
+    isBinanceBtcArbBot () {
+      const bt = this.bot?.bot_type || this.tc.bot_type
+      return bt === 'binance_btc_arb'
+    },
     aiAutoRegime () {
       return this.aiAutoStatus?.state?.regime || this.aiAutoStatus?.regime?.regime || '—'
     },
@@ -911,11 +994,21 @@ export default {
       const mode = String(this.bot?.execution_mode || this.tc.execution_mode || '').toLowerCase()
       return mode === 'live'
     },
+    isBinanceBtcArbLive () {
+      const mode = String(this.bot?.execution_mode || this.tc.execution_mode || '').toLowerCase()
+      return mode === 'live'
+    },
     htxEarnFees () {
       return (this.htxEarnHedgeStatus && this.htxEarnHedgeStatus.fees) || {}
     },
     htxEarnAlign () {
       return (this.htxEarnHedgeStatus && this.htxEarnHedgeStatus.alignment) || {}
+    },
+    binanceBtcFees () {
+      return (this.binanceBtcArbStatus && this.binanceBtcArbStatus.fees) || {}
+    },
+    binanceBtcAlign () {
+      return (this.binanceBtcArbStatus && this.binanceBtcArbStatus.alignment) || {}
     },
     showBasicOrderMode () {
       if (this.isHedgeArbBot) return true
@@ -1029,6 +1122,7 @@ export default {
         this.stopHedgeArbPolling()
         this.stopAiAutoPolling()
         this.stopHtxEarnHedgePolling()
+        this.stopBinanceBtcArbPolling()
         this.stopRestingPolling()
         if (id && this.isGridLikeBot) {
           this.refreshHedgeSummary()
@@ -1045,6 +1139,10 @@ export default {
         if (id && this.isHtxEarnHedgeBot) {
           this.refreshHtxEarnHedgeStatus()
           this.startHtxEarnHedgePolling()
+        }
+        if (id && this.isBinanceBtcArbBot) {
+          this.refreshBinanceBtcArbStatus()
+          this.startBinanceBtcArbPolling()
         }
         if (id && this.isGridBot) {
           this.refreshRestingOrders(true)
@@ -1104,6 +1202,7 @@ export default {
     this.stopHedgeArbPolling()
     this.stopAiAutoPolling()
     this.stopHtxEarnHedgePolling()
+    this.stopBinanceBtcArbPolling()
     this.stopRestingPolling()
   },
   methods: {
@@ -1474,6 +1573,65 @@ export default {
         this.$message.error(e.message || 'exit failed')
       } finally {
         this.htxEarnHedgeActionLoading = false
+      }
+    },
+    startBinanceBtcArbPolling () {
+      this.stopBinanceBtcArbPolling()
+      if (!this.isBinanceBtcArbBot) return
+      this.binanceBtcArbTimer = setInterval(() => {
+        this.refreshBinanceBtcArbStatus(true)
+      }, 15000)
+    },
+    stopBinanceBtcArbPolling () {
+      if (this.binanceBtcArbTimer) {
+        clearInterval(this.binanceBtcArbTimer)
+        this.binanceBtcArbTimer = null
+      }
+    },
+    async refreshBinanceBtcArbStatus (silent = false) {
+      if (!this.bot?.id || !this.isBinanceBtcArbBot) return
+      if (!silent) this.binanceBtcArbLoading = true
+      try {
+        const res = await getBinanceBtcArbStatus(this.bot.id)
+        if (res && res.code === 1) {
+          this.binanceBtcArbStatus = res.data || {}
+        }
+      } finally {
+        this.binanceBtcArbLoading = false
+      }
+    },
+    async handleBinanceBtcArbDeploy () {
+      if (!this.bot?.id) return
+      this.binanceBtcArbActionLoading = true
+      try {
+        const res = await binanceBtcArbDeploy(this.bot.id)
+        if (res && res.code === 1) {
+          this.$message.success(this.$t('trading-bot.binanceBtcArb.deploySuccess'))
+          await this.refreshBinanceBtcArbStatus()
+        } else {
+          throw new Error((res && res.msg) || 'deploy failed')
+        }
+      } catch (e) {
+        this.$message.error(e.message || 'deploy failed')
+      } finally {
+        this.binanceBtcArbActionLoading = false
+      }
+    },
+    async handleBinanceBtcArbEmergencyExit () {
+      if (!this.bot?.id) return
+      this.binanceBtcArbActionLoading = true
+      try {
+        const res = await binanceBtcArbEmergencyExit(this.bot.id)
+        if (res && res.code === 1) {
+          this.$message.success(this.$t('trading-bot.binanceBtcArb.emergencySuccess'))
+          await this.refreshBinanceBtcArbStatus()
+        } else {
+          throw new Error((res && res.msg) || 'exit failed')
+        }
+      } catch (e) {
+        this.$message.error(e.message || 'exit failed')
+      } finally {
+        this.binanceBtcArbActionLoading = false
       }
     },
     formatLegSize (leg) {
