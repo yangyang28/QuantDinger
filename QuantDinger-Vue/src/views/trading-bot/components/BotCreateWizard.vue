@@ -202,7 +202,11 @@
             />
           </a-form-model-item>
 
-          <a-form-model-item :label="capitalLabel" prop="initialCapital">
+          <a-form-model-item
+            v-if="!isHtxEarnHedgeBot"
+            :label="capitalLabel"
+            prop="initialCapital"
+          >
             <a-input-number
               v-model="baseForm.initialCapital"
               :min="10"
@@ -212,6 +216,13 @@
             />
             <div v-if="botType === 'martingale'" class="form-hint">{{ martingaleBudgetHint }}</div>
           </a-form-model-item>
+          <a-alert
+            v-else
+            type="info"
+            show-icon
+            style="margin-bottom: 8px;"
+            :message="$t('trading-bot.htxEarnHedge.capitalStepHint')"
+          />
 
           <a-form-model-item v-if="isHedgeArbBot" :label="$t('trading-bot.grid.orderType')">
             <a-tag color="blue">{{ $t('trading-bot.grid.bestPriceOrder') }}</a-tag>
@@ -364,9 +375,17 @@
             >
               {{ baseForm.leverage }}x
             </a-descriptions-item>
-            <a-descriptions-item :label="capitalLabel">
+            <a-descriptions-item v-if="!isHtxEarnHedgeBot" :label="capitalLabel">
               ${{ baseForm.initialCapital }}
             </a-descriptions-item>
+            <template v-else>
+              <a-descriptions-item :label="$t('trading-bot.htxEarnHedge.spotCapital')">
+                {{ strategyParams.spotUsdt }} U
+              </a-descriptions-item>
+              <a-descriptions-item :label="$t('trading-bot.htxEarnHedge.contractCapital')">
+                {{ strategyParams.perpNotionalUsdt }} U
+              </a-descriptions-item>
+            </template>
             <a-descriptions-item v-if="isHedgeArbBot" :label="$t('trading-bot.grid.orderType')">
               {{ $t('trading-bot.grid.bestPriceOrder') }}
             </a-descriptions-item>
@@ -611,7 +630,21 @@ export default {
         marketCategory: [{ required: true, message: this.$t('trading-bot.wizard.marketCategory'), trigger: 'change' }],
         credentialId: [{ required: true, message: this.$t('trading-bot.wizard.credentialReq'), trigger: 'change' }],
         symbol: [{ required: true, message: this.$t('trading-bot.wizard.symbolReq'), trigger: 'change' }],
-        initialCapital: [{ required: true, type: 'number', min: 10, message: this.$t('trading-bot.wizard.capitalReq'), trigger: 'change' }]
+        initialCapital: [{
+          validator: (rule, value, callback) => {
+            if (this.isHtxEarnHedgeBot) {
+              callback()
+              return
+            }
+            const n = parseFloat(value)
+            if (!(n >= 10)) {
+              callback(new Error(this.$t('trading-bot.wizard.capitalReq')))
+              return
+            }
+            callback()
+          },
+          trigger: 'change'
+        }]
       },
       strategyParams: {},
       riskForm: {
@@ -1101,8 +1134,9 @@ export default {
         fundingNotionalUsdt: this.$t('trading-bot.aiAuto.fundingNotionalUsdt'),
         maxDailyLossPct: this.$t('trading-bot.aiAuto.maxDailyLossPct'),
         regimeRefreshSec: this.$t('trading-bot.aiAuto.regimeRefreshSec'),
-        spotUsdt: this.$t('trading-bot.htxEarnHedge.spotUsdt'),
-        perpNotionalUsdt: this.$t('trading-bot.htxEarnHedge.perpNotionalUsdt'),
+        spotUsdt: this.$t('trading-bot.htxEarnHedge.spotCapital'),
+        perpNotionalUsdt: this.$t('trading-bot.htxEarnHedge.contractCapital'),
+        sync1to1: this.$t('trading-bot.htxEarnHedge.sync1to1'),
         preRedeemPct: this.$t('trading-bot.htxEarnHedge.preRedeemPct'),
         leverage: this.$t('trading-bot.htxEarnHedge.leverage'),
         // Trailing TP fields (shared between martingale and trend bots).
@@ -1656,14 +1690,25 @@ export default {
       }
 
       const htxEarnExtras = {}
+      let htxInitialCapital = this.baseForm.initialCapital
       if (this.isHtxEarnHedgeBot) {
         const p = strategyParams
-        htxEarnExtras.spot_usdt = p.spotUsdt
-        htxEarnExtras.perp_notional_usdt = p.perpNotionalUsdt
-        htxEarnExtras.leverage = p.leverage
+        const spotU = Number(p.spotUsdt || 0)
+        const perpU = Number(p.perpNotionalUsdt || 0)
+        const lev = Math.max(1, Number(p.leverage || 2))
+        htxEarnExtras.spot_usdt = spotU
+        htxEarnExtras.perp_notional_usdt = perpU
+        htxEarnExtras.spot_capital_usdt = spotU
+        htxEarnExtras.perp_capital_usdt = perpU
+        htxEarnExtras.contract_capital_usdt = perpU
+        htxEarnExtras.leverage = lev
         htxEarnExtras.pre_redeem_pct = p.preRedeemPct / 100
         htxEarnExtras.tick_interval_sec = p.tickIntervalSec
+        htxEarnExtras.align_1to1 = p.sync1to1 !== false
         htxEarnExtras.order_mode = 'market'
+        // Accounting capital ≈ spot cash + perp margin (notional / leverage)
+        htxInitialCapital = Math.round((spotU + perpU / lev) * 100) / 100
+        this.baseForm.initialCapital = htxInitialCapital
       }
 
       const hedgeArbOrderMode = (this.isHedgeArbBot || this.isAiAutoBot)
@@ -1687,7 +1732,7 @@ export default {
           market_type: marketType,
           leverage: leverage,
           trade_direction: tradeDirection,
-          initial_capital: this.baseForm.initialCapital,
+          initial_capital: this.isHtxEarnHedgeBot ? htxInitialCapital : this.baseForm.initialCapital,
           stop_loss_pct: (this.botType === 'martingale' || this.isOrchestratorHedgeBot) ? 0 : this.riskForm.stopLossPct,
           take_profit_pct: (this.botType === 'martingale' || this.isOrchestratorHedgeBot) ? 0 : this.riskForm.takeProfitPct,
           max_position: (this.botType === 'martingale' || this.isOrchestratorHedgeBot) ? 0 : this.riskForm.maxPosition,

@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional
 
 from app.services.htx_earn_hedge.config import HtxEarnHedgeConfig, parse_htx_earn_hedge_config
+from app.services.htx_earn_hedge.sizing import alignment_metrics, plan_1to1_deploy
 from app.services.htx_earn_hedge.state import (
     FSM_ARMED,
     FSM_DONE,
@@ -125,19 +126,43 @@ class HtxEarnHedgeOrchestrator:
             raise LiveTradingError("deploy step price: cannot fetch spot price")
 
         min_qty = self.cfg.min_sell_qty
-        expected_spot = _expected_spot_base(self.cfg, last)
-        expected_perp = _expected_perp_base(self.cfg, last)
+        plan = plan_1to1_deploy(
+            spot_usdt=self.cfg.spot_usdt,
+            perp_notional_usdt=self.cfg.perp_notional_usdt,
+            price=last,
+            spot_fee_rate=self.cfg.spot_fee_rate,
+            perp_fee_rate=self.cfg.perp_fee_rate,
+        )
+        # When align_1to1 is on, spend/short toward the matched base qty.
+        if self.cfg.align_1to1:
+            expected_spot = float(plan["target_base_qty"] or 0.0)
+            expected_perp = float(plan["perp_short_qty"] or 0.0)
+            spot_buy_usdt = float(plan["spot_buy_usdt"] or 0.0)
+        else:
+            expected_spot = _expected_spot_base(self.cfg, last)
+            expected_perp = _expected_perp_base(self.cfg, last)
+            spot_buy_usdt = self.cfg.spot_usdt
 
         spot_avail = spot.get_spot_trade_balance(ccy)
         earn_qty, _ = spot.earn_total_qty(ccy)
         perp_open = swap.swap_short_base_qty(symbol=sym)
 
         usdt_avail = spot.get_spot_usdt_trade_balance()
-        if usdt_avail + 1e-6 < self.cfg.spot_usdt and spot_avail < min_qty and earn_qty < min_qty:
+        if usdt_avail + 1e-6 < spot_buy_usdt and spot_avail < min_qty and earn_qty < min_qty:
             raise LiveTradingError(
-                f"deploy step spot_buy: insufficient USDT (need≈{self.cfg.spot_usdt:.2f}, "
+                f"deploy step spot_buy: insufficient USDT (need≈{spot_buy_usdt:.2f}, "
                 f"spot_usdt_avail={usdt_avail:.2f})"
             )
+
+        fees = {
+            "spot_fee_est_usdt": float(plan.get("spot_fee_est_usdt") or 0.0),
+            "perp_fee_est_usdt": float(plan.get("perp_fee_est_usdt") or 0.0),
+            "total_fee_est_usdt": float(plan.get("total_fee_est_usdt") or 0.0),
+            "spot_fee_rate": self.cfg.spot_fee_rate,
+            "perp_fee_rate": self.cfg.perp_fee_rate,
+            "spot_bought_usdt": 0.0,
+            "perp_opened_qty": 0.0,
+        }
 
         # --- Step 1: spot buy (skip if already holding enough base or already in earn) ---
         need_spot_buy = earn_qty < min_qty and spot_avail < max(expected_spot * 0.9, min_qty)
@@ -146,7 +171,7 @@ class HtxEarnHedgeOrchestrator:
             try:
                 spot.spot_market_buy_usdt(
                     symbol=sym,
-                    usdt_amount=self.cfg.spot_usdt,
+                    usdt_amount=spot_buy_usdt,
                     client_order_id=_new_request_id("buy"),
                 )
             except LiveTradingError as exc:
@@ -157,8 +182,13 @@ class HtxEarnHedgeOrchestrator:
                 raise LiveTradingError(
                     f"deploy step spot_buy: no {ccy} credited after buy (avail={spot_avail:.8f})"
                 )
+            fees["spot_bought_usdt"] = spot_buy_usdt
+            # Infer fee from shortfall vs gross qty (fee paid in base or quote).
+            gross_base = spot_buy_usdt / last if last > 0 else 0.0
+            if gross_base > spot_avail > 0:
+                fees["spot_fee_est_usdt"] = round((gross_base - spot_avail) * last, 4)
             state.extra = state.extra or {}
-            state.extra["spot_bought_usdt"] = self.cfg.spot_usdt
+            state.extra["spot_bought_usdt"] = spot_buy_usdt
             self._save_deploy_progress(state, step="spot_buy_done")
         else:
             spot_avail = max(spot_avail, earn_qty)
@@ -185,6 +215,7 @@ class HtxEarnHedgeOrchestrator:
                 project_id = int(project.get("id") or project.get("projectId") or 0)
                 if project_id <= 0:
                     raise LiveTradingError("earn project id not found")
+                # Stake essentially all spot base (keep tiny dust for rounding).
                 subscribe_qty = subscribe_from * 0.995
                 amt = HtxClient.format_earn_amount(subscribe_qty, precision=8)
                 spot.earn_subscribe(
@@ -211,14 +242,22 @@ class HtxEarnHedgeOrchestrator:
 
         order_id = self._resolve_earn_order_id(spot, ccy, state)
 
-        # --- Step 3: perp short (skip if already short enough) ---
+        # --- Step 3: perp short sized 1:1 to earn/spot base (capped by contract capital) ---
+        earn_qty, _ = spot.earn_total_qty(ccy)
+        align_base = earn_qty if earn_qty >= min_qty else spot_avail
+        if self.cfg.align_1to1:
+            cap_base = float(plan["perp_short_qty"] or 0.0) or expected_perp
+            short_target = min(align_base, cap_base) if cap_base > 0 else align_base
+        else:
+            short_target = expected_perp
+
         perp_open = swap.swap_short_base_qty(symbol=sym)
-        need_perp = perp_open < max(expected_perp * 0.9, min_qty)
+        need_perp = perp_open < max(short_target * 0.9, min_qty)
         if need_perp:
             self._save_deploy_progress(state, step="perp_short")
             try:
                 swap.set_leverage(symbol=sym, leverage=float(self.cfg.leverage))
-                short_qty = expected_perp if perp_open < min_qty else max(expected_perp - perp_open, 0.0)
+                short_qty = short_target if perp_open < min_qty else max(short_target - perp_open, 0.0)
                 if short_qty >= min_qty:
                     swap.place_market_order(
                         symbol=sym,
@@ -226,9 +265,11 @@ class HtxEarnHedgeOrchestrator:
                         qty=short_qty,
                         client_order_id=_new_request_id("short"),
                     )
+                    fees["perp_opened_qty"] = short_qty
+                    fees["perp_fee_est_usdt"] = round(short_qty * last * self.cfg.perp_fee_rate, 4)
             except LiveTradingError as exc:
                 raise _deploy_step_error("perp_short", exc) from exc
-            perp_open = swap.swap_short_base_qty(symbol=sym) or expected_perp
+            perp_open = swap.swap_short_base_qty(symbol=sym) or short_target
             if perp_open < min_qty:
                 raise LiveTradingError(
                     f"deploy step perp_short: no short position after order (qty={perp_open:.8f})"
@@ -243,6 +284,15 @@ class HtxEarnHedgeOrchestrator:
 
         earn_qty, _ = spot.earn_total_qty(ccy)
         order_id = self._resolve_earn_order_id(spot, ccy, state)
+        fees["total_fee_est_usdt"] = round(
+            float(fees.get("spot_fee_est_usdt") or 0.0) + float(fees.get("perp_fee_est_usdt") or 0.0),
+            4,
+        )
+        align = alignment_metrics(
+            spot_or_earn_qty=earn_qty or spot_avail,
+            perp_qty=perp_open,
+            price=last,
+        )
 
         state.fsm = FSM_ARMED
         state.symbol = self.cfg.symbol
@@ -257,12 +307,18 @@ class HtxEarnHedgeOrchestrator:
         state.deployed_at = datetime.now(timezone.utc).isoformat()
         state.extra = state.extra or {}
         state.extra["deploy_step"] = "done"
+        state.extra["deploy_plan"] = plan
+        state.extra["fees"] = fees
+        state.extra["alignment"] = align
         state.last_error = ""
         self.repo.save(state)
         append_strategy_log(
             self.strategy_id,
             "info",
-            f"HTX earn hedge deployed earn={state.earn_qty:.8f} perp={state.perp_qty:.8f}",
+            (
+                f"HTX earn hedge deployed earn={state.earn_qty:.8f} perp={state.perp_qty:.8f} "
+                f"matched={align.get('qty_matched')} fees≈{fees.get('total_fee_est_usdt')}U"
+            ),
         )
         return self.get_status()
 
@@ -294,6 +350,7 @@ class HtxEarnHedgeOrchestrator:
                 logger.warning("htx_earn_hedge status rate-limited sid=%s: %s", self.strategy_id, msg)
                 state.last_error = msg
                 self.repo.save(state)
+                extra = state.extra if isinstance(state.extra, dict) else {}
                 return {
                     "fsm": state.fsm,
                     "pre_redeemed": state.pre_redeemed,
@@ -306,36 +363,56 @@ class HtxEarnHedgeOrchestrator:
                     "liq_price": 0.0,
                     "dist_to_liq_pct": None,
                     "last_error": state.last_error,
-                    "deploy_step": (state.extra or {}).get("deploy_step"),
-                    "config": {
-                        "spot_usdt": self.cfg.spot_usdt,
-                        "perp_notional_usdt": self.cfg.perp_notional_usdt,
-                        "leverage": self.cfg.leverage,
-                        "pre_redeem_pct": self.cfg.pre_redeem_pct,
-                    },
+                    "deploy_step": extra.get("deploy_step"),
+                    "fees": extra.get("fees") or {},
+                    "alignment": extra.get("alignment") or {},
+                    "config": self._status_config(),
                     "rate_limited": True,
                 }
             state.last_error = msg
             self.repo.save(state)
+        earn_out = earn_qty or state.earn_qty
+        perp_out = perp_qty or state.perp_qty
+        align = alignment_metrics(
+            spot_or_earn_qty=earn_out if earn_out > 0 else spot_avail,
+            perp_qty=perp_out,
+            price=mark,
+        )
+        extra = state.extra if isinstance(state.extra, dict) else {}
+        fees = dict(extra.get("fees") or {})
         return {
             "fsm": state.fsm,
             "pre_redeemed": state.pre_redeemed,
             "deployed_at": state.deployed_at,
             "earn_order_id": state.earn_order_id,
-            "earn_qty": earn_qty or state.earn_qty,
+            "earn_qty": earn_out,
             "spot_avail": spot_avail,
-            "perp_qty": perp_qty or state.perp_qty,
+            "perp_qty": perp_out,
             "mark": mark,
             "liq_price": liq,
             "dist_to_liq_pct": dist_pct,
             "last_error": state.last_error,
-            "deploy_step": (state.extra or {}).get("deploy_step"),
-            "config": {
-                "spot_usdt": self.cfg.spot_usdt,
-                "perp_notional_usdt": self.cfg.perp_notional_usdt,
-                "leverage": self.cfg.leverage,
-                "pre_redeem_pct": self.cfg.pre_redeem_pct,
-            },
+            "deploy_step": extra.get("deploy_step"),
+            "fees": fees,
+            "alignment": align,
+            "config": self._status_config(),
+        }
+
+    def _status_config(self) -> Dict[str, Any]:
+        margin = (
+            self.cfg.perp_notional_usdt / float(self.cfg.leverage)
+            if self.cfg.leverage > 0
+            else self.cfg.perp_notional_usdt
+        )
+        return {
+            "spot_usdt": self.cfg.spot_usdt,
+            "perp_notional_usdt": self.cfg.perp_notional_usdt,
+            "perp_margin_usdt": round(margin, 4),
+            "leverage": self.cfg.leverage,
+            "pre_redeem_pct": self.cfg.pre_redeem_pct,
+            "align_1to1": self.cfg.align_1to1,
+            "spot_fee_rate": self.cfg.spot_fee_rate,
+            "perp_fee_rate": self.cfg.perp_fee_rate,
         }
 
     def _in_maintenance_hour(self) -> bool:

@@ -390,6 +390,28 @@
             <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.htxEarnHedge.distToLiq') }}</span></div>
             <div class="hedge-stat__value">{{ formatBasisPct(htxEarnHedgeStatus.dist_to_liq_pct) }}</div>
           </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.htxEarnHedge.alignStatus') }}</span></div>
+            <div class="hedge-stat__value">
+              {{ formatBasisPct(htxEarnAlign.qty_drift_pct) }}
+              <a-tag
+                v-if="htxEarnAlign.qty_matched"
+                color="green"
+                size="small"
+                style="margin-left: 6px;"
+              >
+                1:1
+              </a-tag>
+            </div>
+          </div>
+          <div class="hedge-stat">
+            <div class="hedge-stat__head"><span class="hedge-stat__label">{{ $t('trading-bot.htxEarnHedge.totalFee') }}</span></div>
+            <div class="hedge-stat__value">{{ formatHtxFee(htxEarnFees.total_fee_est_usdt) }}</div>
+          </div>
+        </div>
+        <div class="htx-fee-breakdown" v-if="htxEarnFees.total_fee_est_usdt != null">
+          <span>{{ $t('trading-bot.htxEarnHedge.estSpotFee') }}: {{ formatHtxFee(htxEarnFees.spot_fee_est_usdt) }}</span>
+          <span>{{ $t('trading-bot.htxEarnHedge.estPerpFee') }}: {{ formatHtxFee(htxEarnFees.perp_fee_est_usdt) }}</span>
         </div>
         <div v-if="htxEarnHedgeStatus.last_error" class="hedge-arb-error">{{ htxEarnHedgeStatus.last_error }}</div>
       </div>
@@ -889,6 +911,12 @@ export default {
       const mode = String(this.bot?.execution_mode || this.tc.execution_mode || '').toLowerCase()
       return mode === 'live'
     },
+    htxEarnFees () {
+      return (this.htxEarnHedgeStatus && this.htxEarnHedgeStatus.fees) || {}
+    },
+    htxEarnAlign () {
+      return (this.htxEarnHedgeStatus && this.htxEarnHedgeStatus.alignment) || {}
+    },
     showBasicOrderMode () {
       if (this.isHedgeArbBot) return true
       return !!this.tc.order_mode
@@ -1307,6 +1335,11 @@ export default {
       const unit = sym.includes('/') ? sym.split('/')[0].toUpperCase() : ''
       const qty = n.toFixed(6)
       return unit ? `${qty} ${unit}` : qty
+    },
+    formatHtxFee (v) {
+      const n = parseFloat(v)
+      if (!isFinite(n)) return '—'
+      return `${n.toFixed(2)} U`
     },
     async handleHedgeArbEnter () {
       if (!this.bot?.id) return
@@ -1894,6 +1927,17 @@ export default {
   align-items: center;
   gap: 8px;
 }
+.htx-fee-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.06);
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
 .hedge-arb-entered {
   margin-top: 12px;
   font-size: 12px;
