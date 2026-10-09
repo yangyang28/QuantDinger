@@ -1,0 +1,143 @@
+# Push main → build your GHCR images → SSH into production and pull/up.
+#
+# One-time GitHub setup (Settings → Secrets and variables → Actions):
+#   Variables:
+#     ENABLE_PROD_DEPLOY = true
+#   Secrets:
+#     PROD_SSH_HOST      production server IP or hostname
+#     PROD_SSH_USER      ssh user (e.g. ubuntu / root)
+#     PROD_SSH_KEY       private key that can log in (full PEM)
+#     PROD_DEPLOY_PATH   directory that contains docker-compose*.yml
+#     PROD_SSH_PORT      optional, default 22
+#
+# Server .env must point at THIS fork's images, e.g.:
+#   FRONTEND_IMAGE=ghcr.io/yangyang28/quantdinger-frontend
+#   BACKEND_IMAGE=ghcr.io/yangyang28/quantdinger-backend
+#   IMAGE_TAG=latest
+
+name: Publish main and deploy production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_deploy:
+        description: "Only build images, do not SSH deploy"
+        type: boolean
+        default: false
+
+concurrency:
+  group: publish-main-and-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  backend:
+    name: Build & push backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/quantdinger-backend
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backend_api_python
+          file: ./backend_api_python/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BUILD_REGION=global
+            APP_VERSION=0.0.0-${{ github.sha }}
+            GIT_TAG=
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=backend-main
+          cache-to: type=gha,mode=max,scope=backend-main
+          provenance: false
+
+  frontend:
+    name: Build & push frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/quantdinger-frontend
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./QuantDinger-Vue
+          file: ./QuantDinger-Vue/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            APP_VERSION=0.0.0-${{ github.sha }}
+            GIT_TAG=
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=frontend-main
+          cache-to: type=gha,mode=max,scope=frontend-main
+          provenance: false
+
+  deploy:
+    name: SSH deploy production
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_PROD_DEPLOY == 'true' && (github.event_name != 'workflow_dispatch' || inputs.skip_deploy != true) }}
+    steps:
+      - name: Pull images and recreate containers
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          port: ${{ secrets.PROD_SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.PROD_DEPLOY_PATH }}"
+            if [ -f docker-compose.ghcr.yml ]; then
+              COMPOSE="docker compose -f docker-compose.ghcr.yml"
+            elif [ -f docker-compose.yml ]; then
+              COMPOSE="docker compose -f docker-compose.yml"
+            else
+              echo "No docker-compose.yml in $(pwd)"
+              exit 1
+            fi
+            $COMPOSE pull backend frontend
+            $COMPOSE up -d --no-deps backend frontend
+            $COMPOSE ps
