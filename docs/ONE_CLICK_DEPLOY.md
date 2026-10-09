@@ -2,23 +2,20 @@
 
 Cursor 改完代码后：你说 **「提交并推送部署」** → 推到 `main` → GitHub Actions 构建镜像 → SSH 登录正式服 `docker compose pull && up`。
 
-## 1. 正式服只做一次
+## 1. 正式服（已核对）
 
-在服务器项目目录的 `.env`（给 compose 用的那个，不是 backend.env）写入你的 fork 镜像，不要再用官方 `brokermr810`：
+当前生产机是 `ubuntu@35.78.192.238`，项目在 `/home/ubuntu/QuantDinger`。
+
+该机 `.env` 为：
 
 ```env
-FRONTEND_IMAGE=ghcr.io/yangyang28/quantdinger-frontend
-BACKEND_IMAGE=ghcr.io/yangyang28/quantdinger-backend
-IMAGE_TAG=latest
+COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml
+FRONTEND_SRC_PATH=./QuantDinger-Vue
 ```
 
-若 GHCR 包是私有的，服务器先登录一次：
+因此部署方式是 **git pull + 本地构建前端**，不要再拉 `ghcr.io/brokermr810/quantdinger-frontend`（否则页面没有你的改动）。
 
-```bash
-echo YOUR_GITHUB_PAT | docker login ghcr.io -u yangyang28 --password-stdin
-```
-
-确认 compose 文件在该目录（`docker-compose.yml` 或 `docker-compose.ghcr.yml`）。
+后端镜像在该机上名为 `quantdinger-backend`（compose build）。
 
 ## 2. GitHub 只做一次
 

@@ -130,14 +130,10 @@ jobs:
           script: |
             set -euo pipefail
             cd "${{ secrets.PROD_DEPLOY_PATH }}"
-            if [ -f docker-compose.ghcr.yml ]; then
-              COMPOSE="docker compose -f docker-compose.ghcr.yml"
-            elif [ -f docker-compose.yml ]; then
-              COMPOSE="docker compose -f docker-compose.yml"
-            else
-              echo "No docker-compose.yml in $(pwd)"
-              exit 1
-            fi
-            $COMPOSE pull backend frontend
-            $COMPOSE up -d --no-deps backend frontend
-            $COMPOSE ps
+            git fetch origin
+            git checkout main
+            git pull --ff-only origin main
+            # This host uses COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml
+            # so frontend is built from ./QuantDinger-Vue, not the official GHCR image.
+            docker compose up -d --build backend frontend
+            docker compose ps
