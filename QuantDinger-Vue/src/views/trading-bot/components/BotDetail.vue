@@ -277,118 +277,50 @@
     <a-card
       v-if="isHedgeArbBot"
       :bordered="false"
-      class="hedge-summary-card"
+      class="hedge-summary-card arb-pnl-host"
       style="margin-top: 12px;"
     >
-      <div class="hedge-summary">
-        <div class="hedge-summary__header">
-          <div class="hedge-summary__title">
-            <span class="hedge-summary__icon">
-              <a-icon type="swap" />
-            </span>
-            <div class="hedge-summary__title-text">
-              <span class="hedge-summary__name">{{ $t('trading-bot.hedgeArb.panelTitle') }}</span>
-              <a-tooltip :title="$t('trading-bot.hedgeArb.panelHint')">
-                <a-icon type="question-circle" class="hedge-summary__tip" />
-              </a-tooltip>
-            </div>
-          </div>
-          <div class="hedge-arb-actions">
+      <arb-pnl-panel
+        ref="arbPnlPanel"
+        :strategyId="bot.id"
+        :strategyName="bot.strategy_name"
+        :isDark="isDark"
+        @loaded="onArbPnlLoaded"
+      >
+        <template slot="actions">
+          <a-button
+            v-if="canHedgeArbEnter"
+            size="small"
+            type="primary"
+            :loading="hedgeArbActionLoading"
+            @click="handleHedgeArbEnter"
+          >
+            {{ $t('trading-bot.hedgeArb.actionEnter') }}
+          </a-button>
+          <template v-if="canHedgeArbManage">
             <a-button
               size="small"
-              class="hedge-summary__refresh"
-              @click="refreshHedgeArbStatus"
-              :loading="hedgeArbLoading"
-            >
-              <a-icon type="reload" />
-            </a-button>
-            <a-button
-              v-if="canHedgeArbEnter"
-              size="small"
-              type="primary"
               :loading="hedgeArbActionLoading"
-              @click="handleHedgeArbEnter"
+              @click="handleHedgeArbRebalance"
             >
-              {{ $t('trading-bot.hedgeArb.actionEnter') }}
+              {{ $t('trading-bot.hedgeArb.actionRebalance') }}
             </a-button>
-            <template v-if="canHedgeArbManage">
-              <a-button
-                size="small"
-                :loading="hedgeArbActionLoading"
-                @click="handleHedgeArbRebalance"
-              >
-                {{ $t('trading-bot.hedgeArb.actionRebalance') }}
-              </a-button>
-              <a-button
-                size="small"
-                type="danger"
-                :loading="hedgeArbActionLoading"
-                @click="handleHedgeArbExit"
-              >
-                {{ $t('trading-bot.hedgeArb.actionExit') }}
-              </a-button>
-            </template>
-            <a-button size="small" @click="handleHedgeArbBacktest">
-              {{ $t('trading-bot.hedgeArb.actionBacktest') }}
+            <a-button
+              size="small"
+              type="danger"
+              :loading="hedgeArbActionLoading"
+              @click="handleHedgeArbExit"
+            >
+              {{ $t('trading-bot.hedgeArb.actionExit') }}
             </a-button>
-          </div>
-        </div>
-
-        <div class="hedge-summary__grid hedge-arb-grid">
-          <div class="hedge-stat">
-            <div class="hedge-stat__head">
-              <span class="hedge-stat__label">{{ $t('trading-assistant.detail.status') }}</span>
-            </div>
-            <div class="hedge-stat__value">{{ hedgeArbStatusLabel }}</div>
-          </div>
-          <div class="hedge-stat">
-            <div class="hedge-stat__head">
-              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.fundingRate') }}</span>
-            </div>
-            <div class="hedge-stat__value">{{ formatFundingRate(hedgeArbSignals.funding_rate) }}</div>
-          </div>
-          <div class="hedge-stat">
-            <div class="hedge-stat__head">
-              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.basisPct') }}</span>
-            </div>
-            <div class="hedge-stat__value">{{ formatBasisPct(hedgeArbSignals.basis_pct) }}</div>
-          </div>
-          <div class="hedge-stat hedge-stat--long">
-            <div class="hedge-stat__head">
-              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.spotQty') }}</span>
-            </div>
-            <div class="hedge-stat__value">{{ formatHedgeQty(hedgeArbStatus.spot_qty) }}</div>
-          </div>
-          <div class="hedge-stat hedge-stat--short">
-            <div class="hedge-stat__head">
-              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.perpQty') }}</span>
-            </div>
-            <div class="hedge-stat__value">{{ formatHedgeQty(hedgeArbStatus.perp_qty) }}</div>
-          </div>
-          <div class="hedge-stat">
-            <div class="hedge-stat__head">
-              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.driftPct') }}</span>
-            </div>
-            <div class="hedge-stat__value">{{ formatBasisPct(hedgeArbStatus.notional_drift_pct) }}</div>
-          </div>
-          <div class="hedge-stat">
-            <div class="hedge-stat__head">
-              <span class="hedge-stat__label">{{ $t('trading-bot.hedgeArb.qtyDriftPct') }}</span>
-            </div>
-            <div class="hedge-stat__value">
-              {{ formatBasisPct(hedgeArbStatus.qty_drift_pct) }}
-              <a-tag v-if="hedgeArbStatus.qty_matched" color="green" size="small" style="margin-left: 6px;">
-                {{ $t('trading-bot.hedgeArb.qtyMatched') }}
-              </a-tag>
-            </div>
-          </div>
-        </div>
-        <div v-if="hedgeArbStatus.entered_at" class="hedge-arb-entered">
-          {{ $t('trading-bot.hedgeArb.enteredAt') }}: {{ hedgeArbStatus.entered_at }}
-        </div>
-        <div v-if="hedgeArbStatus.last_error" class="hedge-arb-error">
-          {{ hedgeArbStatus.last_error }}
-        </div>
+          </template>
+          <a-button size="small" @click="handleHedgeArbBacktest">
+            {{ $t('trading-bot.hedgeArb.actionBacktest') }}
+          </a-button>
+        </template>
+      </arb-pnl-panel>
+      <div v-if="hedgeArbStatus.last_error" class="hedge-arb-error" style="margin-top: 8px;">
+        {{ hedgeArbStatus.last_error }}
       </div>
     </a-card>
 
@@ -717,6 +649,7 @@ import PositionRecords from '@/views/trading-assistant/components/PositionRecord
 import PerformanceAnalysis from '@/views/trading-assistant/components/PerformanceAnalysis.vue'
 import StrategyReviewReport from '@/views/trading-assistant/components/StrategyReviewReport.vue'
 import StrategyLogs from '@/views/trading-assistant/components/StrategyLogs.vue'
+import ArbPnlPanel from '@/views/trading-bot/components/ArbPnlPanel.vue'
 import { getStrategyPositions, getStrategyTrades, getGridRestingOrders, getHedgeArbStatus, hedgeArbEnter, hedgeArbExit, hedgeArbRebalance, hedgeArbBacktest, getHtxEarnHedgeStatus, htxEarnHedgeDeploy, htxEarnHedgeEmergencyExit, getAiAutoStatus, aiAutoTick, aiAutoKill } from '@/api/strategy'
 
 const TYPE_META = {
@@ -784,7 +717,7 @@ const VALUE_DISPLAY_MAP = {
 
 export default {
   name: 'BotDetail',
-  components: { TradingRecords, PositionRecords, PerformanceAnalysis, StrategyReviewReport, StrategyLogs },
+  components: { TradingRecords, PositionRecords, PerformanceAnalysis, StrategyReviewReport, StrategyLogs, ArbPnlPanel },
   props: {
     bot: { type: Object, default: null },
     isDark: { type: Boolean, default: false },
@@ -1252,8 +1185,45 @@ export default {
         if (res && res.code === 1) {
           this.hedgeArbStatus = res.data || {}
         }
+        if (this.$refs.arbPnlPanel && typeof this.$refs.arbPnlPanel.load === 'function') {
+          await this.$refs.arbPnlPanel.load(true)
+        }
       } finally {
         if (!silent) this.hedgeArbLoading = false
+      }
+    },
+    onArbPnlLoaded (data) {
+      if (!data || typeof data !== 'object') return
+      // Keep action-gating fields in sync with the commercial panel payload.
+      const snap = data.status_snapshot || {}
+      this.hedgeArbStatus = {
+        ...(this.hedgeArbStatus || {}),
+        status: data.bot_status || this.hedgeArbStatus.status,
+        symbol: data.symbol || this.hedgeArbStatus.symbol,
+        spot_qty: data.realtime?.spot_qty,
+        perp_qty: data.realtime?.perp_qty,
+        notional_drift_pct: data.realtime?.notional_drift_pct,
+        qty_drift_pct: data.realtime?.qty_drift_pct,
+        qty_matched: data.realtime?.qty_matched,
+        cumulative_funding_est: data.realtime?.cumulative_funding_est,
+        entered_at: data.realtime?.entered_at,
+        last_error: snap.last_error,
+        last_rebalance_at: snap.last_rebalance_at,
+        signals: {
+          funding_rate: data.realtime?.funding_rate,
+          basis_pct: data.realtime?.basis_pct,
+          spot_price: data.realtime?.spot_price,
+          perp_mark_price: data.realtime?.perp_mark_price
+        },
+        performance: {
+          unrealized_pnl_usdt: data.realtime?.unrealized_pnl_usdt,
+          cumulative_funding_est: data.realtime?.cumulative_funding_est,
+          spot_notional_usdt: data.realtime?.spot_notional_usdt,
+          perp_notional_usdt: data.realtime?.perp_notional_usdt,
+          total_est_pnl_usdt: data.realtime?.total_pnl_usdt
+        },
+        live_data_ok: data.live_data_ok,
+        config: snap.config || this.hedgeArbStatus.config
       }
     },
     startAiAutoPolling () {
@@ -1606,6 +1576,13 @@ export default {
 .detail-tabs-card {
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.arb-pnl-host {
+  overflow: hidden;
+  /deep/ .ant-card-body {
+    padding: 14px;
+  }
 }
 
 .detail-header {

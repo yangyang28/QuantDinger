@@ -68,6 +68,49 @@ def hedge_arb_status():
         return jsonify({"code": 0, "msg": str(e), "data": None}), 500
 
 
+@strategy_blp.route("/strategies/hedge-arb/pnl", methods=["GET"])
+@login_required
+def hedge_arb_pnl():
+    """Commercial PnL panel: realtime P&L, monthly/yearly estimates, per-fill attribution."""
+    try:
+        from app.services.hedge_arb.pnl_panel import build_hedge_arb_pnl_panel
+
+        strategy_id = request.args.get("id", type=int)
+        if not strategy_id:
+            return jsonify({"code": 0, "msg": "Missing strategy id", "data": None}), 400
+        st = get_strategy_service().get_strategy(strategy_id, user_id=g.user_id)
+        if not st:
+            return jsonify({"code": 0, "msg": "Strategy not found", "data": None}), 404
+        tc = st.get("trading_config") if isinstance(st.get("trading_config"), dict) else {}
+        bot_type = str(st.get("bot_type") or tc.get("bot_type") or "").strip().lower()
+        if bot_type != "hedge_arb":
+            return jsonify({"code": 0, "msg": "Not a hedge_arb strategy", "data": None}), 400
+
+        lang = str(request.args.get("lang") or request.headers.get("Accept-Language") or "zh")[:2].lower()
+        lang = "zh" if lang.startswith("zh") else "en"
+        trade_limit = request.args.get("limit", default=200, type=int) or 200
+        trade_limit = max(1, min(int(trade_limit), 500))
+
+        status = _orchestrator_for_strategy(st).get_status()
+        try:
+            initial = float(st.get("initial_capital") or tc.get("initial_capital") or 0.0)
+        except Exception:
+            initial = 0.0
+
+        data = build_hedge_arb_pnl_panel(
+            status=status,
+            strategy_id=int(strategy_id),
+            strategy_name=str(st.get("strategy_name") or st.get("name") or ""),
+            initial_capital=initial,
+            lang=lang,
+            trade_limit=trade_limit,
+        )
+        return jsonify({"code": 1, "msg": "success", "data": data})
+    except Exception as e:
+        logger.error("hedge-arb pnl: %s\n%s", e, traceback.format_exc())
+        return jsonify({"code": 0, "msg": str(e), "data": None}), 500
+
+
 @strategy_blp.route("/strategies/hedge-arb/enter", methods=["POST"])
 @login_required
 def hedge_arb_enter():

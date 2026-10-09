@@ -283,6 +283,87 @@ class TestBacktest:
         assert out["funding_pnl_usdt"] == pytest.approx(1000 * (0.0002 + 0.00015))
 
 
+class TestPnlPanel:
+    def test_project_funding_pnl(self):
+        from app.services.hedge_arb.pnl_panel import project_funding_pnl
+
+        out = project_funding_pnl(funding_rate=0.0001, notional_usdt=10000, hold_ratio=1.0)
+        # 0.0001 * 10000 per 8h × 3/day × 30 = 90
+        assert out["estimated_monthly_usdt"] == pytest.approx(90.0)
+        assert out["estimated_yearly_usdt"] == pytest.approx(1095.0)
+        assert out["funding_apr_pct"] == pytest.approx(10.95)
+
+    def test_project_flat_when_not_holding(self):
+        from app.services.hedge_arb.pnl_panel import project_funding_pnl
+
+        out = project_funding_pnl(funding_rate=0.0001, notional_usdt=10000, hold_ratio=0.0)
+        assert out["estimated_monthly_usdt"] == 0.0
+
+    @patch("app.services.hedge_arb.pnl_panel._fetch_strategy_trades")
+    def test_build_panel_includes_attribution(self, fetch_trades):
+        from app.services.hedge_arb.pnl_panel import build_hedge_arb_pnl_panel
+
+        fetch_trades.return_value = [
+            {
+                "id": 1,
+                "symbol": "BTC/USDT",
+                "type": "buy",
+                "price": 50000,
+                "amount": 0.001,
+                "value": 50,
+                "commission": 0.02,
+                "profit": 0,
+                "net_pnl": -0.02,
+                "market_type": "spot",
+                "fill_source": "hedge_enter",
+                "pending_order_id": 9,
+                "created_at": 1700000000,
+                "close_reason": "",
+            }
+        ]
+        status = {
+            "status": "holding",
+            "symbol": "BTC/USDT",
+            "exchange_id": "binance",
+            "spot_qty": 0.001,
+            "perp_qty": 0.001,
+            "live_data_ok": True,
+            "notional_drift_pct": 0.0,
+            "qty_drift_pct": 0.0,
+            "qty_matched": True,
+            "cumulative_funding_est": 1.25,
+            "entered_at": "2024-01-01T00:00:00Z",
+            "signals": {
+                "funding_rate": 0.0001,
+                "basis_pct": 0.001,
+                "spot_price": 50000,
+                "perp_mark_price": 50050,
+            },
+            "performance": {
+                "unrealized_pnl_usdt": 0.5,
+                "cumulative_funding_est": 1.25,
+                "spot_notional_usdt": 50,
+                "perp_notional_usdt": 50.05,
+            },
+            "config": {"notional_usdt": 100},
+            "last_error": "",
+            "recent_fills": [],
+        }
+        panel = build_hedge_arb_pnl_panel(
+            status=status,
+            strategy_id=42,
+            strategy_name="Demo Arb",
+            initial_capital=1000,
+            lang="zh",
+        )
+        assert panel["realtime"]["total_pnl_usdt"] == pytest.approx(0.5 + 1.25 - 0.02)
+        assert panel["projection"]["is_estimate"] is True
+        assert panel["projection"]["estimated_monthly_usdt"] > 0
+        assert any(t.get("pnl_source") == "funding" for t in panel["trades"])
+        assert any(t.get("fill_source") == "hedge_enter" for t in panel["trades"])
+        assert panel["trades"][-1]["source_label"]  # attributed fill present
+
+
 class TestBrokerPolicy:
     def test_hedge_arb_crypto_only(self):
         assert "Crypto" in BOT_TYPE_MARKETS["hedge_arb"]

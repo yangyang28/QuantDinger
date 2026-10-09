@@ -41,6 +41,7 @@ const api = {
   publishTemplate: '/api/strategies/publish-template',
   publishBotPreset: '/api/strategies/publish-bot-preset',
   hedgeArbStatus: '/api/strategies/hedge-arb/status',
+  hedgeArbPnl: '/api/strategies/hedge-arb/pnl',
   hedgeArbEnter: '/api/strategies/hedge-arb/enter',
   hedgeArbExit: '/api/strategies/hedge-arb/exit',
   hedgeArbRebalance: '/api/strategies/hedge-arb/rebalance',
@@ -374,6 +375,14 @@ export function getHedgeArbStatus (id) {
     url: api.hedgeArbStatus,
     method: 'get',
     params: { id }
+  })
+}
+
+export function getHedgeArbPnl (id, params = {}) {
+  return request({
+    url: api.hedgeArbPnl,
+    method: 'get',
+    params: { id, ...params }
   })
 }
 
